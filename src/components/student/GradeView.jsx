@@ -4,13 +4,19 @@
 import React, { useEffect, useState } from 'react';
 import {
     Alert, Box, Card, CardContent, Chip, CircularProgress,
-    Container, Divider, Stack, Typography,
+    Container, Divider, LinearProgress, Stack, Typography,
 } from '@mui/material';
 import GradeIcon from '@mui/icons-material/Grade';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import { useAuth } from '../../context/AuthContext';
 import { getAssignments, getSubmissionsForStudent } from '../../firebase/firestoreHelpers';
-import Navbar from '../shared/Navbar';
+
+const MOON = '#7EACB5';
+const MOON_D = '#5F8F99';
+const BANNER = '#2D3748';
+const BANNER_D = '#1e2a38';
+const GUN = '#1B242A';
+const CHAMP = '#F5E4C8';
 
 function gradeColor(grade) {
     if (grade >= 90) return 'success';
@@ -62,12 +68,11 @@ export default function GradeView() {
 
     return (
         <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Navbar />
             <Container maxWidth="md" sx={{ py: 4 }}>
                 <Stack direction="row" alignItems="center" spacing={1.5} mb={3}>
-                    <GradeIcon sx={{ fontSize: 34, color: 'primary.main' }} />
+                    <GradeIcon sx={{ fontSize: 34, color: MOON }} />
                     <Box>
-                        <Typography variant="h4">Мої оцінки</Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 800, color: GUN }}>Мої оцінки</Typography>
                         <Typography variant="body2" color="text.secondary">
                             Здано: {rows.length} | Оцінено: {graded.length}
                         </Typography>
@@ -79,16 +84,17 @@ export default function GradeView() {
                     <Card
                         sx={{
                             mb: 3,
-                            background: 'linear-gradient(135deg, #5c6bc0 0%, #26a69a 100%)',
+                            background: `linear-gradient(135deg, ${BANNER_D} 0%, ${BANNER} 100%)`,
                             color: 'white',
+                            border: '1px solid rgba(126,172,181,0.2)',
                         }}
                     >
                         <CardContent>
                             <Stack direction="row" alignItems="center" spacing={2}>
-                                <EmojiEventsIcon sx={{ fontSize: 48 }} />
+                                <EmojiEventsIcon sx={{ fontSize: 48, color: MOON }} />
                                 <Box>
-                                    <Typography variant="h3" fontWeight={700}>{average}</Typography>
-                                    <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                                    <Typography variant="h3" fontWeight={800} sx={{ color: CHAMP }}>{average}</Typography>
+                                    <Typography variant="body2" sx={{ color: 'rgba(245,228,200,0.7)' }}>
                                         Середня оцінка зі 100
                                     </Typography>
                                 </Box>
@@ -113,13 +119,13 @@ export default function GradeView() {
                                 key={row.id}
                                 sx={{
                                     borderLeft: row.grade != null
-                                        ? `4px solid ${row.grade >= 70 ? '#43a047' : '#ef5350'}`
-                                        : '4px solid #bdbdbd',
+                                        ? `4px solid ${row.grade >= 90 ? '#38A169' : row.grade >= 70 ? MOON_D : row.grade >= 50 ? '#D69E2E' : '#E53E3E'}`
+                                        : '4px solid #CBD5E0',
                                 }}
                             >
                                 <CardContent>
                                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                                        <Typography variant="h6" flex={1}>{row.assignmentTitle}</Typography>
+                                        <Typography variant="h6" flex={1} sx={{ color: GUN }}>{row.assignmentTitle}</Typography>
                                         {row.grade != null ? (
                                             <Chip
                                                 label={`${row.grade} / 100`}
@@ -130,6 +136,22 @@ export default function GradeView() {
                                             <Chip label="Очікує оцінки" size="small" />
                                         )}
                                     </Stack>
+
+                                    {row.grade != null && (
+                                        <Box mt={1.5}>
+                                            <LinearProgress
+                                                variant="determinate"
+                                                value={row.grade}
+                                                sx={{
+                                                    height: 6, borderRadius: 3,
+                                                    bgcolor: '#EDF2F7',
+                                                    '& .MuiLinearProgress-bar': {
+                                                        bgcolor: row.grade >= 90 ? '#38A169' : row.grade >= 70 ? MOON_D : row.grade >= 50 ? '#D69E2E' : '#E53E3E',
+                                                    },
+                                                }}
+                                            />
+                                        </Box>
+                                    )}
 
                                     {row.comment && (
                                         <>

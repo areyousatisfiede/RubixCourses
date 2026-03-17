@@ -2,10 +2,17 @@
 // Надає { user, role, loading, logout, mockLogin } усьому дереву компонентів
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { 
+    onAuthStateChanged, 
+    signOut, 
+    signInWithEmailAndPassword, 
+    createUserWithEmailAndPassword, 
+    sendPasswordResetEmail,
+    updateProfile
+} from 'firebase/auth';
 import { Box, CircularProgress } from '@mui/material';
 import { auth } from '../firebase/firebase';
-import { getUserProfile } from '../firebase/firestoreHelpers';
+import { getUserProfile, createUserProfile } from '../firebase/firestoreHelpers';
 
 const AuthContext = createContext(null);
 
@@ -42,9 +49,15 @@ export function AuthProvider({ children }) {
         // Відновлюємо демо-сесію з sessionStorage
         const saved = sessionStorage.getItem('demo_user');
         if (saved) {
-            const parsed = JSON.parse(saved);
-            setUser(parsed.user);
-            setRole(parsed.role);
+            try {
+                const parsed = JSON.parse(saved);
+                setUser(parsed.user);
+                setRole(parsed.role);
+                setLoading(false); // Демо-акаунт завантажується миттєво
+            } catch (e) {
+                console.error("Помилка парсингу демо-сесії:", e);
+                sessionStorage.removeItem('demo_user');
+            }
         }
 
         if (!auth) {
@@ -52,18 +65,20 @@ export function AuthProvider({ children }) {
             return;
         }
 
-        const fallbackTimer = setTimeout(() => setLoading(false), 3000);
-
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            clearTimeout(fallbackTimer);
             if (firebaseUser) {
-                setUser(firebaseUser);
-                const profile = await getUserProfile(firebaseUser.uid);
-                setRole(profile?.role ?? null);
+                // ВАЖЛИВО: Спершу отримуємо роль, потім знімаємо loading
+                try {
+                    setUser(firebaseUser);
+                    const profile = await getUserProfile(firebaseUser.uid);
+                    setRole(profile?.role ?? 'student'); // За замовчуванням student якщо профілю немає
+                } catch (e) {
+                    console.error("Помилка при отриманні профілю:", e);
+                    setRole('student');
+                }
             } else {
-                // Якщо Firebase повернув null — перевіряємо чи є демо-сесія
-                const savedDemo = sessionStorage.getItem('demo_user');
-                if (!savedDemo) {
+                // Перевіряємо чи є демо-сесія (якщо немає firebaseUser)
+                if (!sessionStorage.getItem('demo_user')) {
                     setUser(null);
                     setRole(null);
                 }
@@ -71,15 +86,59 @@ export function AuthProvider({ children }) {
             setLoading(false);
         });
 
-        return () => {
-            clearTimeout(fallbackTimer);
-            unsubscribe();
-        };
+        return () => unsubscribe();
     }, []);
 
     /**
+     * Вхід через Firebase Auth
+     */
+    async function login(email, password) {
+        if (!auth) throw new Error('Firebase Auth не ініціалізовано');
+        setLoading(true); // Показуємо завантаження поки отримуємо роль
+        try {
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            const profile = await getUserProfile(userCredential.user.uid);
+            const userRole = profile?.role || 'student';
+            setRole(userRole);
+            return { user: userCredential.user, role: userRole };
+        } catch (e) {
+            setLoading(false);
+            throw e;
+        }
+    }
+
+    /**
+     * Реєстрація через Firebase Auth
+     */
+    async function signup(email, password, role, displayName) {
+        if (!auth) throw new Error('Firebase Auth не ініціалізовано');
+        setLoading(true);
+        try {
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            await updateProfile(userCredential.user, { displayName });
+            await createUserProfile(userCredential.user.uid, {
+                email,
+                displayName,
+                role,
+            });
+            setRole(role);
+            return { user: userCredential.user, role };
+        } catch (e) {
+            setLoading(false);
+            throw e;
+        }
+    }
+
+    /**
+     * Скидання паролю
+     */
+    async function resetPassword(email) {
+        if (!auth) throw new Error('Firebase Auth не ініціалізовано');
+        return await sendPasswordResetEmail(auth, email);
+    }
+
+    /**
      * Вхід через тестовий (демо) акаунт — без Firebase.
-     * Повертає true якщо email/password співпадає з тестовим акаунтом.
      */
     function mockLogin(email, password) {
         const found = TEST_ACCOUNTS.find(
@@ -100,32 +159,41 @@ export function AuthProvider({ children }) {
         return true;
     }
 
+    /**
+     * Вихід із системи
+     */
     async function logout() {
-        sessionStorage.removeItem('demo_user');
-        if (auth && user && !user.isDemo) {
+        if (user?.isDemo) {
+            sessionStorage.removeItem('demo_user');
+            setUser(null);
+            setRole(null);
+        } else if (auth) {
             await signOut(auth);
+            setUser(null);
+            setRole(null);
         }
-        setUser(null);
-        setRole(null);
     }
 
-    const value = { user, role, loading, logout, mockLogin };
+    const value = {
+        user,
+        role,
+        loading,
+        login,
+        signup,
+        logout,
+        resetPassword,
+        mockLogin,
+    };
 
-    if (loading) {
-        return (
-            <Box
-                sx={{
-                    minHeight: '100vh',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: '#f7f9fb',
-                }}
-            >
-                <CircularProgress sx={{ color: '#7EACB5' }} size={48} />
-            </Box>
-        );
-    }
-
-    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+    return (
+        <AuthContext.Provider value={value}>
+            {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+                    <CircularProgress />
+                </Box>
+            ) : (
+                children
+            )}
+        </AuthContext.Provider>
+    );
 }

@@ -2,96 +2,82 @@
 import React, { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
-    signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-} from 'firebase/auth';
-import { auth, googleProvider } from '../../firebase/firebase';
-import { getUserProfile, createUserProfile } from '../../firebase/firestoreHelpers';
-import {
-    Box, Button, Divider, FormControl, InputLabel, MenuItem,
-    Select, Stack, TextField, Typography, Alert, CircularProgress,
-    Link, Paper,
+    Box, Button, Divider, Stack, TextField, Typography, Alert, CircularProgress,
+    Link, Paper, InputAdornment, IconButton
 } from '@mui/material';
-import GoogleIcon from '@mui/icons-material/Google';
 import SchoolIcon from '@mui/icons-material/School';
 import PersonIcon from '@mui/icons-material/Person';
 import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { useAuth, TEST_ACCOUNTS } from '../../context/AuthContext';
+import { auth } from '../../firebase/firebase';
 
 const GUN = '#1B242A';
 const MOON = '#7EACB5';
 const MOON_D = '#5F8F99';
 const BANNER = '#2D3748';
+const BANNER_D = '#1e2a38';
 
 const TEACHER_DEMO = TEST_ACCOUNTS.find((a) => a.role === 'teacher');
 const STUDENT_DEMO = TEST_ACCOUNTS.find((a) => a.role === 'student');
 
 export default function Login() {
     const navigate = useNavigate();
-    const { mockLogin } = useAuth();
+    const { login, mockLogin } = useAuth();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [selectedRole, setSelectedRole] = useState('student');
-    const [isRegister, setIsRegister] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    async function handlePostLogin(firebaseUser) {
-        const profile = await getUserProfile(firebaseUser.uid);
-        let role = profile?.role;
-        if (!profile) {
-            await createUserProfile(firebaseUser.uid, {
-                displayName: firebaseUser.displayName || email.split('@')[0],
-                email: firebaseUser.email,
-                role: selectedRole,
-            });
-            role = selectedRole;
-        }
-        navigate(role === 'teacher' ? '/teacher' : '/student');
-    }
-
-    async function handleGoogle() {
-        if (!auth) { setError('Firebase не налаштовано'); return; }
-        setLoading(true); setError('');
-        try {
-            const result = await signInWithPopup(auth, googleProvider);
-            await handlePostLogin(result.user);
-        } catch (e) { setError(e.message); }
-        finally { setLoading(false); }
-    }
+    const validate = () => {
+        if (!email.trim()) return 'Будь ласка, введіть email';
+        if (!/\S+@\S+\.\S+/.test(email)) return 'Невірний формат email';
+        if (password.length < 6) return 'Пароль має бути не менше 6 символів';
+        return null;
+    };
 
     async function handleEmailSubmit(e) {
         e.preventDefault();
-        setLoading(true); setError('');
-
+        
         // Спробуємо демо-вхід спочатку
         const demoOk = mockLogin(email, password);
         if (demoOk) {
             const found = TEST_ACCOUNTS.find((a) => a.email === email.trim().toLowerCase());
-            setLoading(false);
             navigate(found.role === 'teacher' ? '/teacher' : '/student');
             return;
         }
 
+        const validationError = validate();
+        if (validationError) {
+            setError(validationError);
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+
         if (!auth) {
-            setError('Firebase не налаштовано. Спробуйте демо-акаунт нижче.');
+            setError('Firebase не налаштовано. Спробуйте демо-акаунт.');
             setLoading(false);
             return;
         }
 
         try {
-            const result = isRegister
-                ? await createUserWithEmailAndPassword(auth, email, password)
-                : await signInWithEmailAndPassword(auth, email, password);
-            await handlePostLogin(result.user);
-        } catch (e) { setError(e.message); }
-        finally { setLoading(false); }
-    }
-
-    function fillDemo(account) {
-        setEmail(account.email);
-        setPassword(account.password);
-        setError('');
+            const { role: userRole } = await login(email, password);
+            // Перенаправляємо відповідно до ролі
+            navigate(userRole === 'teacher' ? '/teacher' : '/student');
+        } catch (e) {
+            let message = 'Невірний email або пароль.';
+            if (e.code === 'auth/user-not-found') message = 'Користувача не знайдено.';
+            if (e.code === 'auth/wrong-password') message = 'Невірний пароль.';
+            if (e.code === 'auth/invalid-credential') message = 'Невірні дані для входу.';
+            setError(message);
+        } finally {
+            setLoading(false);
+        }
     }
 
     function loginAsDemo(account) {
@@ -105,13 +91,23 @@ export default function Login() {
         <Box
             sx={{
                 minHeight: '100vh',
-                bgcolor: '#f7f9fb',
+                background: `linear-gradient(135deg, ${BANNER_D} 0%, ${BANNER} 55%, #344055 100%)`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 px: 2, py: 6,
+                position: 'relative',
+                overflow: 'hidden',
             }}
         >
+            {/* Decorative glow */}
+            <Box sx={{
+                position: 'absolute', top: '-10%', right: '-5%',
+                width: 400, height: 400, borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(126,172,181,0.18) 0%, transparent 70%)',
+                pointerEvents: 'none',
+            }} />
+            
             <Paper
                 elevation={0}
                 sx={{
@@ -130,10 +126,10 @@ export default function Login() {
                         <Typography variant="h5" fontWeight={800} sx={{ color: GUN }}>EduHub</Typography>
                     </Box>
                     <Typography variant="h6" fontWeight={700} sx={{ color: GUN }}>
-                        {isRegister ? 'Створити акаунт' : 'Вхід до платформи'}
+                        Вхід до платформи
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#718096', mt: 0.5 }}>
-                        {isRegister ? 'Зареєструйтесь для доступу до курсів' : 'Введіть свої дані для входу'}
+                        Введіть свої дані для входу
                     </Typography>
                 </Box>
 
@@ -150,7 +146,6 @@ export default function Login() {
                         🔑 ДЕМО-АКАУНТИ (без реєстрації)
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                        {/* Teacher demo */}
                         <Button
                             variant="contained"
                             startIcon={<SchoolOutlinedIcon />}
@@ -165,7 +160,6 @@ export default function Login() {
                         >
                             Викладач
                         </Button>
-                        {/* Student demo */}
                         <Button
                             variant="contained"
                             startIcon={<PersonIcon />}
@@ -181,84 +175,74 @@ export default function Login() {
                             Студент
                         </Button>
                     </Box>
-                    <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 0.4 }}>
-                        <Typography variant="caption" sx={{ color: '#718096' }}>
-                            👨‍🏫 <b style={{ color: GUN }}>{TEACHER_DEMO.email}</b> / {TEACHER_DEMO.password}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: '#718096' }}>
-                            🎓 <b style={{ color: GUN }}>{STUDENT_DEMO.email}</b> / {STUDENT_DEMO.password}
-                        </Typography>
-                    </Box>
                 </Box>
 
-                <Divider sx={{ mb: 3 }}>
-                    <Typography variant="caption" sx={{ color: '#A0AEC0', px: 1 }}>або власний акаунт</Typography>
-                </Divider>
+                <Divider sx={{ mb: 3, color: '#e2e8f0', fontSize: '0.75rem', fontWeight: 600 }}>АБО ЧЕРЕЗ EMAIL</Divider>
 
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-                {!auth && (
-                    <Alert severity="info" sx={{ mb: 2 }}>
-                        Firebase не підключено — використовуйте демо-акаунти вище.
-                    </Alert>
-                )}
-
-                {/* Role */}
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                    <InputLabel sx={{ color: '#718096' }}>Роль</InputLabel>
-                    <Select value={selectedRole} label="Роль" onChange={(e) => setSelectedRole(e.target.value)}
-                        sx={{ color: GUN }}>
-                        <MenuItem value="student">🎓 Студент</MenuItem>
-                        <MenuItem value="teacher">👨‍🏫 Викладач</MenuItem>
-                    </Select>
-                </FormControl>
-
-                {/* Google */}
-                <Button
-                    fullWidth variant="outlined" startIcon={<GoogleIcon />}
-                    onClick={handleGoogle} disabled={loading}
-                    sx={{
-                        py: 1.3, mb: 2,
-                        borderColor: '#e2e8f0', color: GUN,
-                        '&:hover': { borderColor: MOON, bgcolor: 'rgba(126,172,181,0.06)' },
-                    }}
-                >
-                    Увійти через Google
-                </Button>
-
-                <Divider sx={{ mb: 2 }}>
-                    <Typography variant="caption" sx={{ color: '#A0AEC0', px: 1 }}>або</Typography>
-                </Divider>
+                {error && <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>{error}</Alert>}
 
                 <Box component="form" onSubmit={handleEmailSubmit}>
-                    <Stack spacing={2}>
-                        <TextField label="Email" type="email" fullWidth required
-                            value={email} onChange={(e) => setEmail(e.target.value)} />
-                        <TextField label="Пароль" type="password" fullWidth required
-                            value={password} onChange={(e) => setPassword(e.target.value)} />
-                        <Button type="submit" variant="contained" color="primary" fullWidth disabled={loading}
-                            sx={{ py: 1.4 }}>
-                            {loading
-                                ? <CircularProgress size={20} sx={{ color: '#fff' }} />
-                                : isRegister ? 'Зареєструватися' : 'Увійти'}
+                    <Stack spacing={2.5}>
+                        <TextField
+                            label="Email"
+                            type="email"
+                            variant="outlined"
+                            fullWidth
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                        />
+                        <Box>
+                            <TextField
+                                label="Пароль"
+                                type={showPassword ? 'text' : 'password'}
+                                variant="outlined"
+                                fullWidth
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                                InputProps={{
+                                    endAdornment: (
+                                        <InputAdornment position="end">
+                                            <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                                                {showPassword ? <VisibilityOff /> : <Visibility />}
+                                            </IconButton>
+                                        </InputAdornment>
+                                    ),
+                                }}
+                            />
+                            <Box sx={{ textAlign: 'right', mt: 1 }}>
+                                <Link component={RouterLink} to="/forgot-password" sx={{ fontSize: '0.85rem', color: MOON, fontWeight: 600, textDecoration: 'none' }}>
+                                    Забули пароль?
+                                </Link>
+                            </Box>
+                        </Box>
+
+                        <Button
+                            type="submit"
+                            variant="contained"
+                            disabled={loading}
+                            sx={{
+                                py: 1.5,
+                                bgcolor: MOON,
+                                fontWeight: 700,
+                                fontSize: '1rem',
+                                '&:hover': { bgcolor: MOON_D },
+                                textTransform: 'none',
+                                borderRadius: 2,
+                                boxShadow: '0 4px 12px rgba(126,172,181,0.25)',
+                            }}
+                        >
+                            {loading ? <CircularProgress size={24} sx={{ color: '#fff' }} /> : 'Увійти'}
                         </Button>
+
+                        <Typography variant="body2" align="center" sx={{ color: '#718096' }}>
+                            Немає акаунту?{' '}
+                            <Link component={RouterLink} to="/register" sx={{ color: MOON, fontWeight: 700, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                                Зареєструватися
+                            </Link>
+                        </Typography>
                     </Stack>
-                </Box>
-
-                <Box textAlign="center" mt={3}>
-                    <Typography variant="body2" sx={{ color: '#718096' }}>
-                        {isRegister ? 'Вже є акаунт? ' : 'Немає акаунту? '}
-                        <Link component="button" fontWeight={700} sx={{ color: MOON_D, cursor: 'pointer' }}
-                            onClick={() => { setIsRegister(!isRegister); setError(''); }}>
-                            {isRegister ? 'Увійти' : 'Зареєструватися'}
-                        </Link>
-                    </Typography>
-                </Box>
-
-                <Box textAlign="center" mt={1.5}>
-                    <Link component={RouterLink} to="/" variant="body2"
-                        sx={{ color: '#A0AEC0', '&:hover': { color: MOON_D } }}>
-                        ← Повернутися до курсів
-                    </Link>
                 </Box>
             </Paper>
         </Box>

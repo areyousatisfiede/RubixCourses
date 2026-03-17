@@ -17,7 +17,7 @@ import {
     getSubmissionsForStudent,
     submitWork,
 } from '../../firebase/firestoreHelpers';
-import Navbar from '../shared/Navbar';
+import SubmissionComments from '../shared/SubmissionComments';
 
 export default function StudentAssignmentDetail() {
     const { id } = useParams();
@@ -70,14 +70,12 @@ export default function StudentAssignmentDetail() {
 
     if (loading) return (
         <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Navbar />
             <Box textAlign="center" pt={8}><CircularProgress /></Box>
         </Box>
     );
 
     return (
         <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Navbar />
             <Container maxWidth="md" sx={{ py: 4 }}>
                 <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/student')} sx={{ mb: 2 }}>
                     До списку завдань
@@ -188,6 +186,20 @@ export default function StudentAssignmentDetail() {
                         </Stack>
                     </CardContent>
                 </Card>
+
+                {/* Приватні коментарі з викладачем */}
+                {submission && (
+                    <Card sx={{ mt: 3 }}>
+                        <CardContent>
+                            <SubmissionComments
+                                submissionId={submission.id}
+                                assignmentId={id}
+                                otherUserId={assignment?.createdBy}
+                                otherUserName="Викладач"
+                            />
+                        </CardContent>
+                    </Card>
+                )}
             </Container>
         </Box>
     );

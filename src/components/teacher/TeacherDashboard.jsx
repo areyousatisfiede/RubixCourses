@@ -5,7 +5,7 @@ import React, { useEffect, useState } from 'react';
 import {
     Box, Button, Card, CardContent, CircularProgress, Container,
     Dialog, DialogActions, DialogContent, DialogTitle,
-    Grid, IconButton, MenuItem, Stack, TextField,
+    Grid, IconButton, Stack, TextField,
     Tooltip, Typography, Alert, Chip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -21,7 +21,11 @@ import {
     updateAssignment,
     deleteAssignment,
 } from '../../firebase/firestoreHelpers';
-import Navbar from '../shared/Navbar';
+import ClassCodeCard from './ClassCodeCard';
+
+const MOON = '#7EACB5';
+const MOON_D = '#5F8F99';
+const GUN = '#1B242A';
 
 // ─── Форма для додавання / редагування завдання ─────────────────────────────
 function AssignmentForm({ open, onClose, onSave, initial }) {
@@ -138,7 +142,6 @@ export default function TeacherDashboard() {
 
     return (
         <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Navbar />
             <Container maxWidth="lg" sx={{ py: 4 }}>
                 {/* Заголовок + кнопка */}
                 <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
@@ -158,84 +161,128 @@ export default function TeacherDashboard() {
                     </Button>
                 </Stack>
 
-                {/* Статистика */}
-                <Grid container spacing={2} mb={4}>
-                    {[
-                        { label: 'Всього завдань', value: assignments.length, color: '#5c6bc0' },
-                        {
-                            label: 'Завдань з дедлайном сьогодні',
-                            value: assignments.filter((a) => {
-                                if (!a.dueDate) return false;
-                                const d = a.dueDate.seconds ? new Date(a.dueDate.seconds * 1000) : new Date(a.dueDate);
-                                return d.toDateString() === new Date().toDateString();
-                            }).length,
-                            color: '#ef5350',
-                        },
-                    ].map((stat) => (
-                        <Grid item xs={12} sm={6} md={3} key={stat.label}>
-                            <Card sx={{ borderLeft: `4px solid ${stat.color}` }}>
-                                <CardContent>
-                                    <Typography variant="body2" color="text.secondary">{stat.label}</Typography>
-                                    <Typography variant="h4" sx={{ color: stat.color }}>{stat.value}</Typography>
-                                </CardContent>
-                            </Card>
+                <Grid container spacing={3} alignItems="flex-start">
+                    {/* ── Ліва колонка: статистика + список завдань ── */}
+                    <Grid item xs={12} md={8}>
+                        {/* Статистика */}
+                        <Grid container spacing={2} mb={3}>
+                            {[
+                                { label: 'Всього завдань', value: assignments.length, color: MOON_D },
+                                {
+                                    label: 'Дедлайн сьогодні',
+                                    value: assignments.filter((a) => {
+                                        if (!a.dueDate) return false;
+                                        const d = a.dueDate.seconds ? new Date(a.dueDate.seconds * 1000) : new Date(a.dueDate);
+                                        return d.toDateString() === new Date().toDateString();
+                                    }).length,
+                                    color: '#E53E3E',
+                                },
+                                {
+                                    label: 'Прострочено',
+                                    value: assignments.filter((a) => {
+                                        if (!a.dueDate) return false;
+                                        const d = a.dueDate.seconds ? new Date(a.dueDate.seconds * 1000) : new Date(a.dueDate);
+                                        return d < new Date() && d.toDateString() !== new Date().toDateString();
+                                    }).length,
+                                    color: '#D69E2E',
+                                },
+                                {
+                                    label: 'Активних завдань',
+                                    value: assignments.filter((a) => {
+                                        if (!a.dueDate) return true;
+                                        const d = a.dueDate.seconds ? new Date(a.dueDate.seconds * 1000) : new Date(a.dueDate);
+                                        return d >= new Date();
+                                    }).length,
+                                    color: '#38A169',
+                                },
+                            ].map((stat) => (
+                                <Grid item xs={6} sm={3} key={stat.label}>
+                                    <Card sx={{ borderLeft: `4px solid ${stat.color}`, height: '100%' }}>
+                                        <CardContent>
+                                            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>{stat.label}</Typography>
+                                            <Typography variant="h4" sx={{ color: stat.color, fontWeight: 800, mt: 0.5 }}>{stat.value}</Typography>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                            ))}
                         </Grid>
-                    ))}
-                </Grid>
 
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-                {/* Список завдань */}
-                {loading ? (
-                    <Box textAlign="center" py={6}><CircularProgress /></Box>
-                ) : assignments.length === 0 ? (
-                    <Card sx={{ textAlign: 'center', py: 6 }}>
-                        <AssignmentIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 1 }} />
-                        <Typography color="text.secondary">Завдань ще немає. Додайте перше!</Typography>
-                    </Card>
-                ) : (
-                    <Stack spacing={2}>
-                        {assignments.map((a) => (
-                            <Card key={a.id} sx={{ transition: 'box-shadow 0.2s', '&:hover': { boxShadow: 6 } }}>
-                                <CardContent>
-                                    <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
-                                        <Box flex={1}>
-                                            <Typography variant="h6">{a.title}</Typography>
-                                            <Typography variant="body2" color="text.secondary" mt={0.5}>
-                                                {a.description || 'Опис відсутній'}
-                                            </Typography>
-                                            <Box mt={1}>
-                                                <Chip
-                                                    label={`Дедлайн: ${formatDate(a.dueDate)}`}
-                                                    size="small"
-                                                    variant="outlined"
-                                                    color="primary"
-                                                />
-                                            </Box>
-                                        </Box>
-                                        <Stack direction="row" spacing={0.5}>
-                                            <Tooltip title="Переглянути — оцінити роботи">
-                                                <IconButton color="primary" onClick={() => navigate(`/teacher/assignment/${a.id}`)}>
-                                                    <VisibilityIcon />
-                                                </IconButton>
-                                            </Tooltip>
-                                            <Tooltip title="Редагувати">
-                                                <IconButton onClick={() => { setEditing(a); setFormOpen(true); }}>
-                                                    <EditIcon />
-                                                </IconButton>
-                                            </Tooltip>
-                                            <Tooltip title="Видалити">
-                                                <IconButton color="error" onClick={() => setDeleteTarget(a.id)}>
-                                                    <DeleteIcon />
-                                                </IconButton>
-                                            </Tooltip>
-                                        </Stack>
-                                    </Stack>
-                                </CardContent>
+                        {/* Список завдань */}
+                        {loading ? (
+                            <Box textAlign="center" py={6}><CircularProgress /></Box>
+                        ) : assignments.length === 0 ? (
+                            <Card sx={{ textAlign: 'center', py: 6 }}>
+                                <AssignmentIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 1 }} />
+                                <Typography color="text.secondary">Завдань ще немає. Додайте перше!</Typography>
                             </Card>
-                        ))}
-                    </Stack>
-                )}
+                        ) : (
+                            <Stack spacing={2}>
+                                {assignments.map((a) => {
+                                    const dueD = a.dueDate
+                                        ? (a.dueDate.seconds ? new Date(a.dueDate.seconds * 1000) : new Date(a.dueDate))
+                                        : null;
+                                    const isOverdue = dueD && dueD < new Date() && dueD.toDateString() !== new Date().toDateString();
+                                    const isToday = dueD && dueD.toDateString() === new Date().toDateString();
+                                    const deadlineColor = isOverdue ? '#E53E3E' : isToday ? '#D69E2E' : MOON_D;
+                                    return (
+                                        <Card key={a.id} sx={{
+                                            transition: 'box-shadow 0.2s, border-color 0.2s',
+                                            '&:hover': { boxShadow: 6 },
+                                            borderLeft: `4px solid ${deadlineColor}`,
+                                        }}>
+                                            <CardContent>
+                                                <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
+                                                    <Box flex={1}>
+                                                        <Typography variant="h6" sx={{ color: GUN }}>{a.title}</Typography>
+                                                        <Typography variant="body2" color="text.secondary" mt={0.5}>
+                                                            {a.description || 'Опис відсутній'}
+                                                        </Typography>
+                                                        <Box mt={1}>
+                                                            <Chip
+                                                                label={isOverdue ? `⚠️ Прострочено: ${formatDate(a.dueDate)}` : `Дедлайн: ${formatDate(a.dueDate)}`}
+                                                                size="small"
+                                                                sx={{
+                                                                    bgcolor: `${deadlineColor}14`,
+                                                                    color: deadlineColor,
+                                                                    border: `1px solid ${deadlineColor}40`,
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            />
+                                                        </Box>
+                                                    </Box>
+                                                    <Stack direction="row" spacing={0.5}>
+                                                        <Tooltip title="Переглянути — оцінити роботи">
+                                                            <IconButton color="primary" onClick={() => navigate(`/teacher/assignment/${a.id}`)}>
+                                                                <VisibilityIcon />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                        <Tooltip title="Редагувати">
+                                                            <IconButton onClick={() => { setEditing(a); setFormOpen(true); }}>
+                                                                <EditIcon />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                        <Tooltip title="Видалити">
+                                                            <IconButton color="error" onClick={() => setDeleteTarget(a.id)}>
+                                                                <DeleteIcon />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    </Stack>
+                                                </Stack>
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                })}
+                            </Stack>
+                        )}
+                    </Grid>
+
+                    {/* ── Права колонка: Код класу ── */}
+                    <Grid item xs={12} md={4}>
+                        <ClassCodeCard />
+                    </Grid>
+                </Grid>
             </Container>
 
             {/* Форма додавання/редагування */}
@@ -262,3 +309,4 @@ export default function TeacherDashboard() {
         </Box>
     );
 }
+

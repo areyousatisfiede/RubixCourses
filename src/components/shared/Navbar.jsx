@@ -11,6 +11,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import SearchIcon from '@mui/icons-material/Search';
 import { useAuth } from '../../context/AuthContext';
+import NotificationBell from './NotificationBell';
 
 const GUN = '#1B242A';
 const MOON = '#7EACB5';
@@ -86,6 +87,22 @@ export default function Navbar() {
                                     {role === 'teacher' ? 'Дашборд' : 'Мої курси'}
                                 </Button>
                             )}
+                            {user && (
+                                <Button
+                                    component={RouterLink} to="/stream" size="small"
+                                    sx={{ color: '#4A5568', fontWeight: 600, '&:hover': { color: GUN, bgcolor: '#f7f9fb' } }}
+                                >
+                                    Стрім
+                                </Button>
+                            )}
+                            {user && role === 'teacher' && (
+                                <Button
+                                    component={RouterLink} to="/teacher/members" size="small"
+                                    sx={{ color: '#4A5568', fontWeight: 600, '&:hover': { color: GUN, bgcolor: '#f7f9fb' } }}
+                                >
+                                    Студенти
+                                </Button>
+                            )}
                             {user && role === 'student' && (
                                 <Button
                                     component={RouterLink} to="/student/grades" size="small"
@@ -102,18 +119,22 @@ export default function Navbar() {
                     {!isMobile && (
                         <>
                             {user ? (
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                     <Chip
                                         label={role === 'teacher' ? 'Викладач' : 'Студент'}
                                         size="small"
                                         sx={{ bgcolor: 'rgba(126,172,181,0.13)', color: MOON_D, fontWeight: 600 }}
                                     />
+                                    <NotificationBell />
                                     <Avatar
                                         src={user.photoURL}
                                         sx={{ width: 34, height: 34, bgcolor: MOON, color: '#fff', fontSize: 13, fontWeight: 700 }}
                                     >
                                         {!user.photoURL && (user.displayName || user.email || '?')[0].toUpperCase()}
                                     </Avatar>
+                                    <Typography sx={{ color: GUN, fontWeight: 600, fontSize: '0.88rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {user.displayName || user.email?.split('@')[0] || ''}
+                                    </Typography>
                                     <IconButton
                                         size="small" onClick={handleLogout} title="Вийти"
                                         sx={{ color: '#A0AEC0', '&:hover': { color: GUN, bgcolor: '#f7f9fb' } }}
@@ -130,7 +151,7 @@ export default function Navbar() {
                                         Увійти
                                     </Button>
                                     <Button
-                                        component={RouterLink} to="/login" size="small" variant="contained" color="primary"
+                                        component={RouterLink} to="/register" size="small" variant="contained" color="primary"
                                         sx={{ px: 2.5, fontWeight: 700 }}
                                     >
                                         Реєстрація
@@ -140,6 +161,7 @@ export default function Navbar() {
                         </>
                     )}
 
+                    {isMobile && user && <NotificationBell />}
                     {isMobile && (
                         <IconButton onClick={() => setDrawerOpen(true)} sx={{ color: GUN }}>
                             <MenuIcon />
@@ -153,13 +175,33 @@ export default function Navbar() {
                     <SchoolIcon sx={{ color: MOON }} />
                     <Typography fontWeight={800} color={GUN} fontSize="1.1rem">EduHub</Typography>
                 </Box>
+                {user && (
+                    <Box px={2.5} pb={1.5} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar
+                            src={user.photoURL}
+                            sx={{ width: 38, height: 38, bgcolor: MOON, color: '#fff', fontSize: 14, fontWeight: 700 }}
+                        >
+                            {!user.photoURL && (user.displayName || user.email || '?')[0].toUpperCase()}
+                        </Avatar>
+                        <Box>
+                            <Typography fontWeight={700} fontSize="0.9rem" color={GUN}>
+                                {user.displayName || user.email?.split('@')[0] || ''}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: MOON_D, fontWeight: 600 }}>
+                                {role === 'teacher' ? 'Викладач' : 'Студент'}
+                            </Typography>
+                        </Box>
+                    </Box>
+                )}
                 <Divider />
                 <List sx={{ px: 1 }}>
                     {[
                         { label: 'Курси', to: '/' },
                         ...(user ? [{ label: role === 'teacher' ? 'Дашборд' : 'Мої курси', to: dashboardLink }] : []),
+                        ...(user ? [{ label: 'Стрім класу', to: '/stream' }] : []),
+                        ...(user && role === 'teacher' ? [{ label: 'Студенти', to: '/teacher/members' }] : []),
                         ...(user && role === 'student' ? [{ label: 'Оцінки', to: '/student/grades' }] : []),
-                        ...(!user ? [{ label: 'Увійти', to: '/login' }, { label: 'Реєстрація', to: '/login' }] : []),
+                        ...(!user ? [{ label: 'Увійти', to: '/login' }, { label: 'Реєстрація', to: '/register' }] : []),
                     ].map((item) => (
                         <ListItem key={item.label} disablePadding sx={{ mb: 0.5 }}>
                             <ListItemButton component={RouterLink} to={item.to} onClick={() => setDrawerOpen(false)}>
