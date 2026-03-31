@@ -1,206 +1,252 @@
 // src/components/student/AssignmentDetail.jsx
-// Деталі завдання для студента: опис + завантаження файлу + статус
-
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-    Alert, Box, Button, Card, CardContent, Chip,
-    CircularProgress, Container, Divider, Link,
-    Stack, Typography,
+    Alert, Box, Button, Card, CardContent, Chip, CircularProgress,
+    Container, Divider, Snackbar, Stack, Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useAuth } from '../../context/AuthContext';
 import {
-    getAssignments,
-    getSubmissionsForStudent,
+    getAssignmentById,
+    getSubmission,
     submitWork,
-} from '../../firebase/firestoreHelpers';
+    fileUrl,
+} from '../../api/endpoints';
 import SubmissionComments from '../shared/SubmissionComments';
 
-export default function StudentAssignmentDetail() {
-    const { id } = useParams();
-    const { user } = useAuth();
-    const navigate = useNavigate();
+const MOON = '#7EACB5';
+const GUN = '#1B242A';
 
+export default function AssignmentDetail() {
+    const { id } = useParams();
+    const navigate = useNavigate();
+    const { user } = useAuth();
     const [assignment, setAssignment] = useState(null);
-    const [submission, setSubmission] = useState(null);   // поточний submission студента
+    const [submission, setSubmission] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+    const [snack, setSnack] = useState({ open: false, msg: '', severity: 'success' });
 
     useEffect(() => {
         async function load() {
             try {
-                const [all, subs] = await Promise.all([
-                    getAssignments(),
-                    getSubmissionsForStudent(user.uid),
+                const [a, sub] = await Promise.all([
+                    getAssignmentById(id),
+                    getSubmission(id, user._id),
                 ]);
-                setAssignment(all.find((a) => a.id === id) || null);
-                setSubmission(subs.find((s) => s.assignmentId === id) || null);
+                setAssignment(a);
+                setSubmission(sub);
             } catch (e) {
-                setError('Помилка завантаження');
+                console.error(e);
             } finally {
                 setLoading(false);
             }
         }
         load();
-    }, [id, user.uid]);
+    }, [id, user]);
 
-    async function handleSubmit() {
-        if (!selectedFile) return;
+    const handleSubmit = async () => {
+        if (!file) return;
         setUploading(true);
-        setError('');
         try {
-            await submitWork(id, user.uid, selectedFile);
-            setSuccess('Роботу успішно надіслано! ✓');
-            setSelectedFile(null);
-            // Оновлюємо submission
-            const subs = await getSubmissionsForStudent(user.uid);
-            setSubmission(subs.find((s) => s.assignmentId === id) || null);
+            const sub = await submitWork(id, user._id, file);
+            setSubmission(sub);
+            setFile(null);
+            setSnack({ open: true, msg: '✓ Роботу здано!', severity: 'success' });
         } catch (e) {
-            setError('Помилка завантаження файлу');
+            setSnack({ open: true, msg: e.message, severity: 'error' });
         } finally {
             setUploading(false);
         }
+    };
+
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}>
+                <CircularProgress sx={{ color: MOON }} />
+            </Box>
+        );
     }
 
-    if (loading) return (
-        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Box textAlign="center" pt={8}><CircularProgress /></Box>
-        </Box>
-    );
+    if (!assignment) {
+        return (
+            <Container maxWidth="md" sx={{ pt: 6 }}>
+                <Typography>Завдання не знайдено</Typography>
+            </Container>
+        );
+    }
 
     return (
-        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+        <Box sx={{ minHeight: '100vh', bgcolor: '#f7f9fb', pb: 8 }}>
             <Container maxWidth="md" sx={{ py: 4 }}>
-                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/student')} sx={{ mb: 2 }}>
-                    До списку завдань
+                <Button
+                    startIcon={<ArrowBackIcon />}
+                    onClick={() => navigate('/student')}
+                    sx={{ mb: 2, color: GUN, fontWeight: 600 }}
+                >
+                    Назад
                 </Button>
 
-                {/* Деталі завдання */}
-                <Card sx={{ mb: 3 }}>
+                {/* Assignment info */}
+                <Card sx={{ borderRadius: 3, mb: 3 }}>
                     <CardContent>
-                        <Typography variant="h5" gutterBottom>{assignment?.title}</Typography>
-                        <Typography variant="body1" color="text.secondary">
-                            {assignment?.description || 'Опис відсутній'}
+                        <Typography variant="h5" fontWeight={800} color={GUN} gutterBottom>
+                            {assignment.title}
                         </Typography>
-                        {assignment?.dueDate && (
-                            <Chip
-                                label={`Дедлайн: ${new Date(
-                                    assignment.dueDate.seconds * 1000
-                                ).toLocaleDateString('uk-UA')}`}
-                                variant="outlined"
-                                color="primary"
-                                size="small"
-                                sx={{ mt: 1.5 }}
-                            />
+                        {assignment.description && (
+                            <Typography variant="body1" color="text.secondary" mb={2}>
+                                {assignment.description}
+                            </Typography>
+                        )}
+                        <Stack direction="row" spacing={1} flexWrap="wrap" mb={1}>
+                            {assignment.dueDate && (
+                                <Chip label={`Дедлайн: ${new Date(assignment.dueDate).toLocaleDateString('uk-UA')}`} size="small" variant="outlined" />
+                            )}
+                        </Stack>
+
+                        {/* Assignment attachments */}
+                        {assignment.attachments?.length > 0 && (
+                            <Box mt={2}>
+                                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                                    📎 Матеріали від викладача:
+                                </Typography>
+                                <Stack direction="row" spacing={1} flexWrap="wrap">
+                                    {assignment.attachments.map((att, i) => (
+                                        <Chip
+                                            key={i}
+                                            icon={<AttachFileIcon />}
+                                            label={att.filename}
+                                            component="a"
+                                            href={fileUrl(att.url)}
+                                            target="_blank"
+                                            clickable
+                                            size="small"
+                                            variant="outlined"
+                                        />
+                                    ))}
+                                </Stack>
+                            </Box>
                         )}
                     </CardContent>
                 </Card>
 
-                {/* Секція надсилання роботи */}
-                <Card>
-                    <CardContent>
-                        <Typography variant="h6" gutterBottom>Моя відповідь</Typography>
-                        <Divider sx={{ mb: 2 }} />
-
-                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-                        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-
-                        {submission ? (
-                            <Stack spacing={1.5}>
-                                <Stack direction="row" alignItems="center" spacing={1}>
-                                    <CheckCircleIcon color="success" />
-                                    <Typography fontWeight={600} color="success.main">Роботу здано</Typography>
+                {/* Submission status */}
+                {submission ? (
+                    <Card sx={{ borderRadius: 3, mb: 3, border: `2px solid ${submission.status === 'returned' ? '#48BB78' : MOON}` }}>
+                        <CardContent>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                    <CheckCircleIcon sx={{ color: submission.status === 'returned' ? '#48BB78' : MOON }} />
+                                    <Typography variant="h6" fontWeight={700} color={GUN}>
+                                        {submission.status === 'returned' ? 'Роботу повернуто з оцінкою' :
+                                            submission.status === 'graded' ? 'Роботу оцінено' : 'Роботу здано'}
+                                    </Typography>
                                 </Stack>
-                                <Link href={submission.fileURL} target="_blank" rel="noopener" variant="body2">
-                                    📎 Переглянути надісланий файл
-                                </Link>
-                                <Typography variant="caption" color="text.secondary">
-                                    Здано:{' '}
-                                    {submission.submittedAt
-                                        ? new Date(submission.submittedAt.seconds * 1000).toLocaleString('uk-UA')
-                                        : '—'}
-                                </Typography>
-
-                                {/* Оцінка та коментар (якщо вже є) */}
-                                {submission.grade != null && (
-                                    <Box
-                                        sx={{
-                                            mt: 2, p: 2, borderRadius: 2,
-                                            bgcolor: 'success.light', color: 'success.contrastText',
-                                        }}
-                                    >
-                                        <Typography variant="subtitle1" fontWeight={700}>
-                                            Оцінка: {submission.grade} / 100
-                                        </Typography>
-                                        {submission.comment && (
-                                            <Typography variant="body2" mt={0.5}>
-                                                💬 {submission.comment}
-                                            </Typography>
-                                        )}
-                                    </Box>
-                                )}
-
-                                {/* Можливість перездати */}
-                                <Divider />
-                                <Typography variant="caption" color="text.secondary">
-                                    Ви можете замінити файл, надіславши нову роботу:
-                                </Typography>
-                            </Stack>
-                        ) : (
-                            <Typography variant="body2" color="text.secondary" mb={2}>
-                                Ви ще не здали роботу. Завантажте файл нижче.
-                            </Typography>
-                        )}
-
-                        {/* Завантаження файлу */}
-                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" mt={2}>
-                            <Button
-                                component="label"
-                                variant="outlined"
-                                startIcon={<CloudUploadIcon />}
-                            >
-                                {selectedFile ? selectedFile.name : 'Обрати файл'}
-                                <input
-                                    type="file"
-                                    hidden
-                                    onChange={(e) => setSelectedFile(e.target.files[0])}
+                                <Chip
+                                    label={
+                                        submission.status === 'returned' ? 'Повернуто' :
+                                            submission.status === 'graded' ? 'Оцінено' : 'Очікує перевірки'
+                                    }
+                                    color={submission.status === 'returned' ? 'success' : submission.status === 'graded' ? 'primary' : 'default'}
+                                    size="small"
                                 />
-                            </Button>
+                            </Stack>
 
-                            {selectedFile && (
+                            {submission.grade != null && (
+                                <Typography variant="h4" fontWeight={800} color={MOON} mb={1}>
+                                    {submission.grade} / 100
+                                </Typography>
+                            )}
+                            {submission.comment && (
+                                <Box sx={{ bgcolor: '#f7f9fb', borderRadius: 2, p: 2, mb: 1 }}>
+                                    <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                                        💬 Коментар викладача:
+                                    </Typography>
+                                    <Typography variant="body2">{submission.comment}</Typography>
+                                </Box>
+                            )}
+
+                            {/* Submitted files */}
+                            {submission.fileURL && (
                                 <Button
-                                    variant="contained"
-                                    onClick={handleSubmit}
-                                    disabled={uploading}
-                                    sx={{ minWidth: 160 }}
+                                    variant="outlined"
+                                    size="small"
+                                    component="a"
+                                    href={fileUrl(submission.fileURL)}
+                                    target="_blank"
+                                    startIcon={<AttachFileIcon />}
+                                    sx={{ mt: 1, borderColor: MOON, color: MOON }}
                                 >
-                                    {uploading ? <CircularProgress size={20} /> : 'Надіслати роботу'}
+                                    Мій файл
                                 </Button>
                             )}
+
+                            <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                                Здано: {new Date(submission.createdAt).toLocaleString('uk-UA')}
+                            </Typography>
+                        </CardContent>
+                    </Card>
+                ) : null}
+
+                {/* Submit work */}
+                <Card sx={{ borderRadius: 3, mb: 3 }}>
+                    <CardContent>
+                        <Typography variant="h6" fontWeight={700} color={GUN} gutterBottom>
+                            {submission ? 'Перездати роботу' : 'Здати роботу'}
+                        </Typography>
+                        <Stack spacing={2}>
+                            <Button
+                                variant="outlined"
+                                component="label"
+                                startIcon={<UploadFileIcon />}
+                                sx={{ borderColor: MOON, color: MOON }}
+                            >
+                                Обрати файл
+                                <input type="file" hidden onChange={(e) => setFile(e.target.files[0])} />
+                            </Button>
+                            {file && (
+                                <Typography variant="body2" color="text.secondary">
+                                    📎 {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                                </Typography>
+                            )}
+                            <Button
+                                variant="contained"
+                                onClick={handleSubmit}
+                                disabled={!file || uploading}
+                                startIcon={uploading ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+                                sx={{ bgcolor: MOON, '&:hover': { bgcolor: '#5F8F99' } }}
+                            >
+                                {submission ? 'Перездати' : 'Здати роботу'}
+                            </Button>
                         </Stack>
                     </CardContent>
                 </Card>
 
-                {/* Приватні коментарі з викладачем */}
+                {/* Comments */}
                 {submission && (
-                    <Card sx={{ mt: 3 }}>
+                    <Card sx={{ borderRadius: 3 }}>
                         <CardContent>
                             <SubmissionComments
-                                submissionId={submission.id}
+                                submissionId={submission._id}
                                 assignmentId={id}
-                                otherUserId={assignment?.createdBy}
-                                otherUserName="Викладач"
                             />
                         </CardContent>
                     </Card>
                 )}
             </Container>
+
+            <Snackbar
+                open={snack.open} autoHideDuration={3000}
+                onClose={() => setSnack(p => ({ ...p, open: false }))}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert severity={snack.severity}>{snack.msg}</Alert>
+            </Snackbar>
         </Box>
     );
 }

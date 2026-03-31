@@ -13,7 +13,7 @@ import {
     addSubmissionComment,
     subscribeSubmissionComments,
     createNotification,
-} from '../../firebase/firestoreHelpers';
+} from '../../api/endpoints';
 
 const MOON = '#7EACB5';
 const MOON_P = 'rgba(126,172,181,0.14)';
@@ -55,7 +55,7 @@ export default function SubmissionComments({ submissionId, assignmentId, otherUs
             await addSubmissionComment({
                 submissionId,
                 assignmentId,
-                authorId: user.uid,
+                authorId: user._id,
                 authorName: user.displayName || user.email?.split('@')[0] || '?',
                 role,
                 text: text.trim(),
@@ -75,7 +75,7 @@ export default function SubmissionComments({ submissionId, assignmentId, otherUs
         }
     }
 
-    const isMe = (c) => c.authorId === user.uid;
+    const isMe = (c) => c.authorId === user._id;
 
     return (
         <Box sx={{ mt: 2 }}>
@@ -105,7 +105,7 @@ export default function SubmissionComments({ submissionId, assignmentId, otherUs
                 ) : (
                     comments.map((c) => (
                         <Box
-                            key={c.id}
+                            key={c._id}
                             sx={{
                                 display: 'flex',
                                 flexDirection: isMe(c) ? 'row-reverse' : 'row',

@@ -9,7 +9,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-import { getClassByCode, joinClass, createNotification } from '../../firebase/firestoreHelpers';
+import { getClassByCode, joinClass, createNotification } from '../../api/endpoints';
 
 const MOON = '#7EACB5';
 const MOON_D = '#5F8F99';
@@ -87,12 +87,12 @@ export default function JoinClassModal({ open, onClose, studentId, onJoined }) {
                 setStatus('error');
                 return;
             }
-            await joinClass(cls.id, studentId);
+            await joinClass(cls._id, studentId);
             // Сповіщуємо вчителя
             await createNotification(
                 cls.teacherId,
                 'system',
-                cls.id,
+                cls._id,
                 `Новий студент приєднався до класу «${cls.name}»`
             );
             setJoinedClass(cls);
@@ -211,8 +211,8 @@ export default function JoinClassModal({ open, onClose, studentId, onJoined }) {
                                             width: 42, height: 52,
                                             borderRadius: 2,
                                             border: `2px solid ${status === 'error' && !d ? '#E53E3E66'
-                                                    : d ? MOON
-                                                        : `${MOON}2A`
+                                                : d ? MOON
+                                                    : `${MOON}2A`
                                                 }`,
                                             bgcolor: d ? `${MOON}20` : `${MOON}0A`,
                                             color: '#fff',

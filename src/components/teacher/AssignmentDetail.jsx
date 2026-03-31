@@ -1,55 +1,73 @@
 // src/components/teacher/AssignmentDetail.jsx
-// Деталі завдання для викладача: список submissions + оцінювання
-
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Alert, Box, Button, Card, CardContent, Chip, CircularProgress,
-    Container, Divider, Link, Stack, Tab, Tabs, TextField, Typography,
+    Container, Divider, Grid, Slider, Snackbar, Stack, TextField,
+    Typography, IconButton, Tooltip,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import GradeIcon from '@mui/icons-material/Grade';
+import DownloadIcon from '@mui/icons-material/Download';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ReplyIcon from '@mui/icons-material/Reply';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+import { useAuth } from '../../context/AuthContext';
 import {
-    getAssignments,
+    getAssignmentById,
     getSubmissionsForAssignment,
     gradeSubmission,
+    returnSubmission,
     createNotification,
-} from '../../firebase/firestoreHelpers';
+    getUsersByIds,
+    fileUrl,
+} from '../../api/endpoints';
 import SubmissionComments from '../shared/SubmissionComments';
 
 const MOON = '#7EACB5';
-const MOON_D = '#5F8F99';
 const GUN = '#1B242A';
 
-export default function TeacherAssignmentDetail() {
+export default function AssignmentDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
-
+    const { user } = useAuth();
     const [assignment, setAssignment] = useState(null);
     const [submissions, setSubmissions] = useState([]);
+    const [students, setStudents] = useState({});
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState({});
-    const [grades, setGrades] = useState({});    // { submissionId: { grade, comment } }
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
-    const [filterTab, setFilterTab] = useState(0); // 0=all, 1=ungraded, 2=graded
+    const [grades, setGrades] = useState({});
+    const [comments, setComments] = useState({});
+    const [saving, setSaving] = useState(null);
+    const [snack, setSnack] = useState({ open: false, msg: '', severity: 'success' });
 
     useEffect(() => {
         async function load() {
             try {
-                const all = await getAssignments();
-                const found = all.find((a) => a.id === id);
-                setAssignment(found || null);
-                const subs = await getSubmissionsForAssignment(id);
+                const [a, subs] = await Promise.all([
+                    getAssignmentById(id),
+                    getSubmissionsForAssignment(id),
+                ]);
+                setAssignment(a);
                 setSubmissions(subs);
-                // Ініціалізуємо локальний стан оцінок
-                const init = {};
-                subs.forEach((s) => {
-                    init[s.id] = { grade: s.grade ?? '', comment: s.comment ?? '' };
+
+                // Ініціалізувати оцінки та коментарі
+                const g = {}, c = {};
+                subs.forEach(s => {
+                    g[s._id] = s.grade ?? '';
+                    c[s._id] = s.comment ?? '';
                 });
-                setGrades(init);
+                setGrades(g);
+                setComments(c);
+
+                // Завантажити імена студентів
+                const uids = [...new Set(subs.map(s => s.studentId))];
+                if (uids.length) {
+                    const users = await getUsersByIds(uids);
+                    const map = {};
+                    users.forEach(u => { map[u._id] = u; });
+                    setStudents(map);
+                }
             } catch (e) {
-                setError('Помилка завантаження');
+                console.error(e);
             } finally {
                 setLoading(false);
             }
@@ -57,169 +75,269 @@ export default function TeacherAssignmentDetail() {
         load();
     }, [id]);
 
-    async function handleGrade(submissionId) {
-        const { grade, comment } = grades[submissionId] || {};
-        const gradeNum = Number(grade);
-        if (isNaN(gradeNum) || gradeNum < 0 || gradeNum > 100) {
-            setError('Оцінка має бути числом від 0 до 100');
-            return;
-        }
-        setSaving((p) => ({ ...p, [submissionId]: true }));
-        setError('');
+    const handleGrade = async (sub) => {
+        setSaving(sub._id);
         try {
-            const sub = submissions.find((s) => s.id === submissionId);
-            await gradeSubmission(submissionId, gradeNum, comment || '');
-            // Сповіщуємо студента про нову оцінку
-            if (sub?.studentId) {
-                await createNotification(
-                    sub.studentId,
-                    'grade',
-                    submissionId,
-                    `Вашу роботу оцінено: ${gradeNum} / 100`
-                );
-            }
-            setSuccess('Оцінку збережено ✓');
-            setTimeout(() => setSuccess(''), 3000);
-            // Оновлюємо локальний стан
-            setSubmissions((prev) =>
-                prev.map((s) => s.id === submissionId ? { ...s, grade: gradeNum, comment: comment || '' } : s)
-            );
+            await gradeSubmission(sub._id, grades[sub._id], comments[sub._id]);
+            await createNotification(sub.studentId, 'grade', id,
+                `Ваша робота «${assignment.title}» оцінена: ${grades[sub._id]}`);
+            setSnack({ open: true, msg: '✓ Оцінку збережено', severity: 'success' });
+            // Оновити статус
+            setSubmissions(prev => prev.map(s =>
+                s._id === sub._id ? { ...s, grade: Number(grades[sub._id]), comment: comments[sub._id], status: 'graded' } : s
+            ));
         } catch (e) {
-            setError('Помилка збереження оцінки');
+            setSnack({ open: true, msg: e.message, severity: 'error' });
         } finally {
-            setSaving((p) => ({ ...p, [submissionId]: false }));
+            setSaving(null);
         }
+    };
+
+    const handleReturn = async (sub) => {
+        setSaving(sub._id);
+        try {
+            await returnSubmission(sub._id, grades[sub._id], comments[sub._id]);
+            await createNotification(sub.studentId, 'grade', id,
+                `Вашу роботу «${assignment.title}» повернуто з оцінкою: ${grades[sub._id]}`);
+            setSnack({ open: true, msg: '✓ Роботу повернуто студенту', severity: 'success' });
+            setSubmissions(prev => prev.map(s =>
+                s._id === sub._id ? { ...s, grade: Number(grades[sub._id]), comment: comments[sub._id], status: 'returned' } : s
+            ));
+        } catch (e) {
+            setSnack({ open: true, msg: e.message, severity: 'error' });
+        } finally {
+            setSaving(null);
+        }
+    };
+
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}>
+                <CircularProgress sx={{ color: MOON }} />
+            </Box>
+        );
     }
 
-    if (loading) return (
-        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Box textAlign="center" pt={8}><CircularProgress sx={{ color: MOON }} /></Box>
-        </Box>
-    );
-
-    const filtered = submissions.filter((s) => {
-        if (filterTab === 1) return s.grade == null;
-        if (filterTab === 2) return s.grade != null;
-        return true;
-    });
+    if (!assignment) {
+        return (
+            <Container maxWidth="md" sx={{ pt: 6 }}>
+                <Typography>Завдання не знайдено</Typography>
+            </Container>
+        );
+    }
 
     return (
-        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Container maxWidth="md" sx={{ py: 4 }}>
-                <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/teacher')} sx={{ mb: 2 }}>
-                    До списку завдань
+        <Box sx={{ minHeight: '100vh', bgcolor: '#f7f9fb', pb: 8 }}>
+            <Container maxWidth="lg" sx={{ py: 4 }}>
+                <Button
+                    startIcon={<ArrowBackIcon />}
+                    onClick={() => navigate('/teacher')}
+                    sx={{ mb: 2, color: GUN, fontWeight: 600 }}
+                >
+                    Назад
                 </Button>
 
-                {/* Заголовок завдання */}
-                <Card sx={{ mb: 3 }}>
+                {/* Інформація про завдання */}
+                <Card sx={{ borderRadius: 3, mb: 3 }}>
                     <CardContent>
-                        <Typography variant="h5">{assignment?.title}</Typography>
-                        <Typography variant="body1" color="text.secondary" mt={1}>
-                            {assignment?.description}
+                        <Typography variant="h5" fontWeight={800} color={GUN} gutterBottom>
+                            {assignment.title}
                         </Typography>
+                        {assignment.description && (
+                            <Typography variant="body1" color="text.secondary" mb={2}>
+                                {assignment.description}
+                            </Typography>
+                        )}
+                        <Stack direction="row" spacing={1} flexWrap="wrap">
+                            {assignment.dueDate && (
+                                <Chip
+                                    label={`Дедлайн: ${new Date(assignment.dueDate).toLocaleDateString('uk-UA')}`}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                            )}
+                            <Chip
+                                label={`${submissions.length} здач`}
+                                size="small"
+                                sx={{ bgcolor: `${MOON}15`, color: MOON, fontWeight: 600 }}
+                            />
+                        </Stack>
+
+                        {/* Прикріплення завдання */}
+                        {assignment.attachments?.length > 0 && (
+                            <Box mt={2}>
+                                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                                    📎 Прикріплені файли:
+                                </Typography>
+                                <Stack direction="row" spacing={1} flexWrap="wrap">
+                                    {assignment.attachments.map((att, i) => (
+                                        <Chip
+                                            key={i}
+                                            icon={<AttachFileIcon />}
+                                            label={att.filename}
+                                            component="a"
+                                            href={fileUrl(att.url)}
+                                            target="_blank"
+                                            clickable
+                                            size="small"
+                                            variant="outlined"
+                                        />
+                                    ))}
+                                </Stack>
+                            </Box>
+                        )}
                     </CardContent>
                 </Card>
 
-                <Typography variant="h6" mb={1}>
-                    Надіслані роботи ({submissions.length})
+                {/* Здачі студентів */}
+                <Typography variant="h6" fontWeight={700} color={GUN} mb={2}>
+                    Здачі студентів ({submissions.length})
                 </Typography>
 
-                {/* Таби фільтрації */}
-                <Tabs
-                    value={filterTab}
-                    onChange={(_, v) => setFilterTab(v)}
-                    sx={{ mb: 2, '& .MuiTab-root': { fontWeight: 600, textTransform: 'none' } }}
-                >
-                    <Tab label={`Всі (${submissions.length})`} />
-                    <Tab label={`Не оцінені (${submissions.filter(s => s.grade == null).length})`} />
-                    <Tab label={`Оцінені (${submissions.filter(s => s.grade != null).length})`} />
-                </Tabs>
-
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-                {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-
-                {filtered.length === 0 ? (
-                    <Card sx={{ textAlign: 'center', py: 6 }}>
-                        <GradeIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 1 }} />
-                        <Typography color="text.secondary">
-                            {filterTab === 1 ? 'Всі роботи оцінено!' : 'Студенти ще не подали роботи'}
-                        </Typography>
+                {submissions.length === 0 ? (
+                    <Card sx={{ textAlign: 'center', py: 6, borderRadius: 3 }}>
+                        <Typography color="text.secondary">Поки ніхто не здав роботу</Typography>
                     </Card>
                 ) : (
                     <Stack spacing={2}>
-                        {filtered.map((sub) => (
-                            <Card key={sub.id} sx={{ border: sub.grade != null ? `1px solid ${MOON}40` : undefined }}>
-                                <CardContent>
-                                    <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-                                        <Typography variant="subtitle1" fontWeight={600} sx={{ color: GUN }}>
-                                            Студент: {sub.studentName || sub.studentId?.slice(0, 12) + '...'}
-                                        </Typography>
-                                        <Chip
-                                            label={sub.grade != null ? `Оцінка: ${sub.grade}` : 'Не оцінено'}
-                                            color={sub.grade != null ? 'success' : 'default'}
-                                            size="small"
-                                        />
-                                    </Stack>
+                        {submissions.map((sub) => {
+                            const studentName = students[sub.studentId]?.displayName || students[sub.studentId]?.email || sub.studentId;
+                            return (
+                                <Card key={sub._id} sx={{ borderRadius: 3, border: '1px solid #e2e8f0' }}>
+                                    <CardContent>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                                            <Box>
+                                                <Typography variant="subtitle1" fontWeight={700} color={GUN}>
+                                                    {studentName}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Здано: {new Date(sub.createdAt).toLocaleString('uk-UA')}
+                                                </Typography>
+                                            </Box>
+                                            <Chip
+                                                label={
+                                                    sub.status === 'returned' ? 'Повернуто' :
+                                                        sub.status === 'graded' ? 'Оцінено' : 'Очікує'
+                                                }
+                                                size="small"
+                                                color={
+                                                    sub.status === 'returned' ? 'success' :
+                                                        sub.status === 'graded' ? 'primary' : 'default'
+                                                }
+                                            />
+                                        </Stack>
 
-                                    <Link href={sub.fileURL} target="_blank" rel="noopener" variant="body2">
-                                        📎 Переглянути файл
-                                    </Link>
-                                    <Typography variant="caption" color="text.secondary" display="block" mb={2}>
-                                        Подано:{' '}
-                                        {sub.submittedAt
-                                            ? new Date(sub.submittedAt.seconds * 1000).toLocaleString('uk-UA')
-                                            : '—'}
-                                    </Typography>
+                                        {/* Файл здачі */}
+                                        {sub.fileURL && (
+                                            <Button
+                                                variant="outlined"
+                                                size="small"
+                                                startIcon={<DownloadIcon />}
+                                                href={fileUrl(sub.fileURL)}
+                                                target="_blank"
+                                                sx={{ mb: 2 }}
+                                            >
+                                                Завантажити файл
+                                            </Button>
+                                        )}
 
-                                    <Divider sx={{ mb: 2 }} />
+                                        {sub.attachments?.length > 0 && (
+                                            <Stack direction="row" spacing={1} mb={2} flexWrap="wrap">
+                                                {sub.attachments.map((att, i) => (
+                                                    <Chip
+                                                        key={i}
+                                                        icon={<AttachFileIcon />}
+                                                        label={att.filename}
+                                                        component="a"
+                                                        href={fileUrl(att.url)}
+                                                        target="_blank"
+                                                        clickable
+                                                        size="small"
+                                                        variant="outlined"
+                                                    />
+                                                ))}
+                                            </Stack>
+                                        )}
 
-                                    {/* Форма оцінювання */}
-                                    <Stack spacing={1.5}>
-                                        <TextField
-                                            label="Оцінка (0–100)"
-                                            type="number"
-                                            size="small"
-                                            inputProps={{ min: 0, max: 100 }}
-                                            value={grades[sub.id]?.grade ?? ''}
-                                            onChange={(e) =>
-                                                setGrades((p) => ({ ...p, [sub.id]: { ...p[sub.id], grade: e.target.value } }))
-                                            }
-                                            sx={{ maxWidth: 160 }}
-                                        />
-                                        <TextField
-                                            label="Коментар"
-                                            multiline
-                                            rows={2}
-                                            size="small"
-                                            value={grades[sub.id]?.comment ?? ''}
-                                            onChange={(e) =>
-                                                setGrades((p) => ({ ...p, [sub.id]: { ...p[sub.id], comment: e.target.value } }))
-                                            }
-                                        />
-                                        <Button
-                                            variant="contained"
-                                            size="small"
-                                            disabled={saving[sub.id]}
-                                            onClick={() => handleGrade(sub.id)}
-                                            sx={{ alignSelf: 'flex-start' }}
-                                        >
-                                            {saving[sub.id] ? <CircularProgress size={16} /> : 'Зберегти оцінку'}
-                                        </Button>
-                                    </Stack>
+                                        <Divider sx={{ my: 2 }} />
 
-                                    <Divider sx={{ mt: 2, mb: 1 }} />
-                                    <SubmissionComments
-                                        submissionId={sub.id}
-                                        assignmentId={id}
-                                        otherUserId={sub.studentId}
-                                        otherUserName={sub.studentName || sub.studentId?.slice(0, 8)}
-                                    />
-                                </CardContent>
-                            </Card>
-                        ))}
+                                        {/* Оцінювання */}
+                                        <Grid container spacing={2} alignItems="flex-start">
+                                            <Grid item xs={12} sm={3}>
+                                                <TextField
+                                                    label="Оцінка (0-100)"
+                                                    type="number"
+                                                    size="small"
+                                                    fullWidth
+                                                    value={grades[sub._id] ?? ''}
+                                                    onChange={(e) => setGrades(p => ({ ...p, [sub._id]: e.target.value }))}
+                                                    inputProps={{ min: 0, max: 100 }}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} sm={5}>
+                                                <TextField
+                                                    label="Коментар викладача"
+                                                    size="small"
+                                                    fullWidth
+                                                    multiline
+                                                    rows={2}
+                                                    value={comments[sub._id] ?? ''}
+                                                    onChange={(e) => setComments(p => ({ ...p, [sub._id]: e.target.value }))}
+                                                />
+                                            </Grid>
+                                            <Grid item xs={12} sm={4}>
+                                                <Stack direction="row" spacing={1}>
+                                                    <Button
+                                                        variant="contained"
+                                                        size="small"
+                                                        startIcon={saving === sub._id ? <CircularProgress size={14} /> : <CheckCircleIcon />}
+                                                        onClick={() => handleGrade(sub)}
+                                                        disabled={saving === sub._id || !grades[sub._id]}
+                                                        sx={{ bgcolor: MOON, '&:hover': { bgcolor: '#5F8F99' } }}
+                                                    >
+                                                        Оцінити
+                                                    </Button>
+                                                    <Tooltip title="Повернути роботу студенту з оцінкою та коментарем">
+                                                        <Button
+                                                            variant="outlined"
+                                                            size="small"
+                                                            startIcon={<ReplyIcon />}
+                                                            onClick={() => handleReturn(sub)}
+                                                            disabled={saving === sub._id || !grades[sub._id]}
+                                                            sx={{ borderColor: MOON, color: MOON }}
+                                                        >
+                                                            Повернути
+                                                        </Button>
+                                                    </Tooltip>
+                                                </Stack>
+                                            </Grid>
+                                        </Grid>
+
+                                        {/* Приватні коментарі */}
+                                        <Box mt={2}>
+                                            <SubmissionComments
+                                                submissionId={sub._id}
+                                                assignmentId={id}
+                                            />
+                                        </Box>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })}
                     </Stack>
                 )}
             </Container>
+
+            <Snackbar
+                open={snack.open}
+                autoHideDuration={3000}
+                onClose={() => setSnack(p => ({ ...p, open: false }))}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert severity={snack.severity} onClose={() => setSnack(p => ({ ...p, open: false }))}>
+                    {snack.msg}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 }

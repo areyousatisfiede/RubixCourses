@@ -1,240 +1,266 @@
 // src/components/student/StudentDashboard.jsx
-// Головна панель студента: список завдань зі статусами
-
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
-    Alert, Box, Button, Card, CardActionArea, CardContent,
-    Chip, CircularProgress, Container, LinearProgress, Stack, Typography,
+    Box, Button, Card, CardContent, Chip, CircularProgress,
+    Container, Dialog, DialogActions, DialogContent, DialogTitle,
+    Grid, Stack, TextField, Typography, Alert, Snackbar, Tabs, Tab
 } from '@mui/material';
-import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
-import AssignmentLateIcon from '@mui/icons-material/AssignmentLate';
-import GradeIcon from '@mui/icons-material/Grade';
-import GroupAddIcon from '@mui/icons-material/GroupAdd';
-import SchoolIcon from '@mui/icons-material/School';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import { useAuth } from '../../context/AuthContext';
-import { getAssignments, getSubmissionsForStudent, subscribeClassForStudent } from '../../firebase/firestoreHelpers';
-import JoinClassModal from './JoinClassModal';
+import {
+    getAssignments,
+    getSubmissionsForStudent,
+    subscribeClassesForStudent,
+    getClassByCode,
+    joinClass,
+    fileUrl,
+} from '../../api/endpoints';
 
 const MOON = '#7EACB5';
-const MOON_D = '#5F8F99';
 const GUN = '#1B242A';
 
 export default function StudentDashboard() {
     const { user } = useAuth();
-    const navigate = useNavigate();
-
     const [assignments, setAssignments] = useState([]);
-    const [submissions, setSubmissions] = useState([]);   // submissions поточного студента
+    const [submissions, setSubmissions] = useState({});
+    const [classes, setClasses] = useState([]);
+    const [selectedClassId, setSelectedClassId] = useState('');
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
     const [joinOpen, setJoinOpen] = useState(false);
-    const [myClass, setMyClass] = useState(undefined); // undefined = not loaded yet, null = no class
+    const [joinCode, setJoinCode] = useState('');
+    const [joining, setJoining] = useState(false);
+    const [snack, setSnack] = useState({ open: false, msg: '', severity: 'success' });
 
-    // Підписуємось на клас студента
+    const refresh = useCallback(async () => {
+        if (!user) return;
+        try {
+            const [list, subs] = await Promise.all([
+                getAssignments(null, selectedClassId),
+                getSubmissionsForStudent(user._id),
+            ]);
+            setAssignments(list);
+            const subMap = {};
+            subs.forEach(s => { subMap[s.assignmentId] = s; });
+            setSubmissions(subMap);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    }, [user, selectedClassId]);
+
+    useEffect(() => { refresh(); }, [refresh]);
+
+    // Підписка на класи
     useEffect(() => {
         if (!user) return;
-        const unsub = subscribeClassForStudent(user.uid, (cls) => {
-            setMyClass(cls);
+        const unsub = subscribeClassesForStudent(user._id, (classList) => {
+            setClasses(classList || []);
+            // Якщо обраний клас більше не існує, скидаємо вибір
+            if (selectedClassId && !(classList || []).find(c => c._id === selectedClassId)) {
+                setSelectedClassId('');
+            }
         });
         return () => unsub();
-    }, [user.uid]);
+    }, [user, selectedClassId]);
 
-    useEffect(() => {
-        async function load() {
-            try {
-                const [aList, sList] = await Promise.all([
-                    getAssignments(),
-                    getSubmissionsForStudent(user.uid),
-                ]);
-                setAssignments(aList);
-                setSubmissions(sList);
-            } catch (e) {
-                setError('Помилка завантаження даних');
-            } finally {
-                setLoading(false);
-            }
+    const handleJoin = async () => {
+        if (!joinCode.trim()) return;
+        setJoining(true);
+        try {
+            const cls = await getClassByCode(joinCode.trim());
+            await joinClass(cls._id, user._id);
+            setSnack({ open: true, msg: `✓ Ви приєднались до класу «${cls.name}»`, severity: 'success' });
+            setJoinOpen(false);
+            setJoinCode('');
+        } catch (e) {
+            setSnack({ open: true, msg: e.message || 'Клас не знайдено', severity: 'error' });
+        } finally {
+            setJoining(false);
         }
-        load();
-    }, [user.uid]);
+    };
 
-    // Перевіряємо, чи студент здав роботу по завданню
-    function getSubmission(assignmentId) {
-        return submissions.find((s) => s.assignmentId === assignmentId) || null;
-    }
-
-    function formatDate(ts) {
-        if (!ts) return '—';
-        const d = ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
-        return d.toLocaleDateString('uk-UA');
-    }
-
-    function isOverdue(ts) {
-        if (!ts) return false;
-        const d = ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts);
-        return d < new Date();
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}>
+                <CircularProgress sx={{ color: MOON }} />
+            </Box>
+        );
     }
 
     return (
-        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Container maxWidth="md" sx={{ py: 4 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+        <Box sx={{ minHeight: '100vh', bgcolor: '#f7f9fb', pb: 8 }}>
+            <Container maxWidth="lg" sx={{ py: 4 }}>
+                {/* Header */}
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
                     <Box>
-                        <Typography variant="h4" sx={{ fontWeight: 800, color: GUN }}>Мої завдання</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Всього: {assignments.length} | Здано: {submissions.length}
+                        <Typography variant="h5" fontWeight={800} color={GUN}>
+                            Мої завдання
                         </Typography>
                     </Box>
-                    <Stack direction="row" spacing={1}>
-                        {(myClass === null || myClass === undefined) && (
-                            <Button
-                                variant="outlined"
-                                startIcon={<GroupAddIcon />}
-                                onClick={() => setJoinOpen(true)}
-                                sx={{ borderRadius: 2, borderColor: '#7EACB5', color: '#5F8F99' }}
-                            >
-                                Приєднатись до класу
-                            </Button>
-                        )}
-                        <Button
-                            variant="outlined"
-                            startIcon={<GradeIcon />}
-                            onClick={() => navigate('/student/grades')}
-                            color="primary"
-                        >
-                            Переглянути оцінки
-                        </Button>
-                    </Stack>
+                    <Button
+                        variant="outlined"
+                        onClick={() => setJoinOpen(true)}
+                        sx={{ borderColor: MOON, color: MOON, fontWeight: 600 }}
+                    >
+                        Приєднатись до класу
+                    </Button>
                 </Stack>
 
-                {/* Банер класу */}
-                {myClass && (
-                    <Box mb={2.5} p={2} sx={{
-                        bgcolor: '#1B242A',
-                        border: '1.5px solid #7EACB544',
-                        borderRadius: 3,
-                        display: 'flex', alignItems: 'center', gap: 1.5,
-                    }}>
-                        <SchoolIcon sx={{ color: '#7EACB5', fontSize: 22 }} />
-                        <Box>
-                            <Typography variant="body2" sx={{ color: '#C4D9E3', fontWeight: 700 }}>
-                                {myClass.name}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: '#7EACB5' }}>
-                                Ви є учасником цього класу
-                            </Typography>
-                        </Box>
-                    </Box>
-                )}
+                <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+                    <Tabs
+                        value={selectedClassId}
+                        onChange={(e, val) => setSelectedClassId(val)}
+                        variant="scrollable"
+                        scrollButtons="auto"
+                        sx={{
+                            '& .MuiTab-root': { fontWeight: 700, textTransform: 'none', minWidth: 100 },
+                            '& .Mui-selected': { color: MOON },
+                            '& .MuiTabs-indicator': { bgcolor: MOON }
+                        }}
+                    >
+                        <Tab label="Усі класи" value="" />
+                        {classes.map(c => (
+                            <Tab key={c._id} label={c.name} value={c._id} />
+                        ))}
+                    </Tabs>
+                </Box>
 
-                {/* Загальний прогрес */}
-                {assignments.length > 0 && (
-                    <Box mb={3} p={2.5} sx={{ bgcolor: `${MOON}12`, border: `1px solid ${MOON}40`, borderRadius: 2 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" fontWeight={600} sx={{ color: GUN }}>Загальний прогрес</Typography>
-                            <Typography variant="body2" sx={{ color: MOON_D, fontWeight: 700 }}>
-                                {submissions.length} / {assignments.length}
-                            </Typography>
-                        </Box>
-                        <LinearProgress
-                            variant="determinate"
-                            value={assignments.length ? (submissions.length / assignments.length) * 100 : 0}
-                            sx={{ height: 8, borderRadius: 4, bgcolor: `${MOON}25`, '& .MuiLinearProgress-bar': { bgcolor: MOON } }}
-                        />
-                    </Box>
-                )}
-
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-                {loading ? (
-                    <Box textAlign="center" py={6}><CircularProgress /></Box>
-                ) : assignments.length === 0 ? (
-                    <Card sx={{ textAlign: 'center', py: 6 }}>
-                        <AssignmentTurnedInIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 1 }} />
-                        <Typography color="text.secondary">Завдань поки немає</Typography>
+                {/* Assignments */}
+                {assignments.length === 0 ? (
+                    <Card sx={{ textAlign: 'center', py: 8, borderRadius: 3 }}>
+                        <AssignmentIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 2 }} />
+                        <Typography variant="h6" color="text.secondary">
+                            Поки що немає завдань
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                            Приєднайтесь до класу за кодом від викладача
+                        </Typography>
                     </Card>
                 ) : (
-                    <Stack spacing={2}>
-                        {[...assignments].sort((a, b) => {
-                            const subA = getSubmission(a.id);
-                            const subB = getSubmission(b.id);
-                            const overdueA = !subA && isOverdue(a.dueDate);
-                            const overdueB = !subB && isOverdue(b.dueDate);
-                            if (overdueA && !overdueB) return -1;
-                            if (!overdueA && overdueB) return 1;
-                            if (!subA && subB) return -1;
-                            if (subA && !subB) return 1;
-                            return 0;
-                        }).map((a) => {
-                            const sub = getSubmission(a.id);
-                            const submitted = !!sub;
-                            const graded = sub?.grade != null;
-                            const overdue = !submitted && isOverdue(a.dueDate);
-                            const borderColor = submitted ? '#38A169' : overdue ? '#E53E3E' : MOON_D;
+                    <Grid container spacing={2}>
+                        {assignments.map((a) => {
+                            const sub = submissions[a._id];
+                            const statusLabel = sub
+                                ? sub.status === 'returned' ? 'Повернуто з оцінкою'
+                                    : sub.status === 'graded' ? `Оцінено: ${sub.grade}`
+                                        : 'Здано'
+                                : 'Не здано';
+                            const statusColor = sub
+                                ? sub.status === 'returned' ? 'success'
+                                    : sub.status === 'graded' ? 'primary'
+                                        : 'info'
+                                : 'default';
 
                             return (
-                                <Card
-                                    key={a.id}
-                                    sx={{
-                                        borderLeft: `4px solid ${borderColor}`,
-                                        transition: 'box-shadow 0.2s',
-                                        '&:hover': { boxShadow: 6 },
-                                    }}
-                                >
-                                    <CardActionArea onClick={() => navigate(`/student/assignment/${a.id}`)}>
+                                <Grid item xs={12} sm={6} md={4} key={a._id}>
+                                    <Card sx={{
+                                        borderRadius: 3, border: '1px solid #e2e8f0',
+                                        transition: 'all 0.2s',
+                                        '&:hover': { borderColor: MOON, boxShadow: `0 4px 20px ${MOON}22` },
+                                    }}>
                                         <CardContent>
-                                            <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                                                <Box flex={1}>
-                                                    <Typography variant="h6" sx={{ color: GUN }}>{a.title}</Typography>
-                                                    <Typography variant="body2" color="text.secondary" mt={0.5}>
-                                                        {a.description || 'Опис відсутній'}
-                                                    </Typography>
-                                                    <Box mt={1.5} display="flex" gap={1} flexWrap="wrap">
-                                                        <Chip
-                                                            label={`Дедлайн: ${formatDate(a.dueDate)}`}
-                                                            size="small"
-                                                            sx={{
-                                                                bgcolor: `${overdue ? '#E53E3E' : MOON_D}15`,
-                                                                color: overdue ? '#E53E3E' : MOON_D,
-                                                                border: `1px solid ${overdue ? '#E53E3E' : MOON_D}40`,
-                                                                fontWeight: 600,
-                                                            }}
-                                                        />
-                                                        {submitted && (
-                                                            <Chip
-                                                                label={graded ? `Оцінка: ${sub.grade}` : 'Здано ✓'}
-                                                                size="small"
-                                                                color={graded ? 'success' : 'info'}
-                                                            />
-                                                        )}
-                                                        {!submitted && (
-                                                            <Chip
-                                                                label={overdue ? '⚠️ Прострочено' : 'Не здано'}
-                                                                size="small"
-                                                                color={overdue ? 'error' : 'warning'}
-                                                            />
-                                                        )}
-                                                    </Box>
-                                                </Box>
-                                                {submitted
-                                                    ? <AssignmentTurnedInIcon color="success" sx={{ ml: 1 }} />
-                                                    : <AssignmentLateIcon color={overdue ? 'error' : 'action'} sx={{ ml: 1 }} />}
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                                                <Typography variant="h6" fontWeight={700} color={GUN} gutterBottom noWrap sx={{ flex: 1 }}>
+                                                    {a.title}
+                                                </Typography>
+                                                {classes.find(c => c._id === a.classId) && (
+                                                    <Chip
+                                                        label={classes.find(c => c._id === a.classId).name}
+                                                        size="small"
+                                                        sx={{ ml: 1, bgcolor: `${MOON}10`, color: MOON, height: 20, fontSize: 10 }}
+                                                    />
+                                                )}
+                                            </Box>
+                                            {a.description && (
+                                                <Typography variant="body2" color="text.secondary" sx={{
+                                                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                                                    overflow: 'hidden', mb: 1.5,
+                                                }}>
+                                                    {a.description}
+                                                </Typography>
+                                            )}
+                                            <Stack direction="row" spacing={1} flexWrap="wrap" mb={1.5}>
+                                                {a.dueDate && (
+                                                    <Chip
+                                                        icon={<CalendarTodayIcon sx={{ fontSize: '0.85rem !important' }} />}
+                                                        label={new Date(a.dueDate).toLocaleDateString('uk-UA')}
+                                                        size="small" variant="outlined" sx={{ fontSize: 12 }}
+                                                    />
+                                                )}
+                                                <Chip
+                                                    label={statusLabel}
+                                                    size="small"
+                                                    color={statusColor}
+                                                    icon={sub ? <CheckCircleIcon sx={{ fontSize: '0.85rem !important' }} /> : undefined}
+                                                    sx={{ fontSize: 12, fontWeight: 600 }}
+                                                />
+                                                {a.attachments?.length > 0 && (
+                                                    <Chip
+                                                        icon={<AttachFileIcon sx={{ fontSize: '0.85rem !important' }} />}
+                                                        label={`${a.attachments.length} файл(ів)`}
+                                                        size="small" variant="outlined" sx={{ fontSize: 12 }}
+                                                    />
+                                                )}
                                             </Stack>
+                                            <Button
+                                                component={RouterLink}
+                                                to={`/student/assignment/${a._id}`}
+                                                fullWidth
+                                                variant="outlined"
+                                                size="small"
+                                                sx={{ borderColor: MOON, color: MOON, fontWeight: 600 }}
+                                            >
+                                                {sub ? 'Переглянути' : 'Здати роботу'}
+                                            </Button>
                                         </CardContent>
-                                    </CardActionArea>
-                                </Card>
+                                    </Card>
+                                </Grid>
                             );
                         })}
-                    </Stack>
+                    </Grid>
                 )}
             </Container>
 
-            <JoinClassModal
-                open={joinOpen}
-                onClose={() => setJoinOpen(false)}
-                studentId={user.uid}
-                onJoined={(cls) => setMyClass(cls)}
-            />
+            {/* Join class dialog */}
+            <Dialog open={joinOpen} onClose={() => setJoinOpen(false)} maxWidth="xs" fullWidth>
+                <DialogTitle sx={{ fontWeight: 700 }}>Приєднатись до класу</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus fullWidth label="Код класу"
+                        value={joinCode}
+                        onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                        sx={{ mt: 1 }}
+                        inputProps={{ maxLength: 6, style: { letterSpacing: 4, fontFamily: 'monospace', textAlign: 'center', fontSize: 20 } }}
+                        onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setJoinOpen(false)} disabled={joining}>Скасувати</Button>
+                    <Button
+                        variant="contained" onClick={handleJoin}
+                        disabled={joinCode.length < 6 || joining}
+                        startIcon={joining ? <CircularProgress size={14} /> : null}
+                        sx={{ bgcolor: MOON, '&:hover': { bgcolor: '#5F8F99' } }}
+                    >
+                        Приєднатись
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Snackbar
+                open={snack.open} autoHideDuration={3000}
+                onClose={() => setSnack(p => ({ ...p, open: false }))}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert severity={snack.severity}>
+                    {snack.msg}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 }

@@ -1,5 +1,5 @@
 // src/components/teacher/ClassCodeCard.jsx
-// Картка з кодом запрошення класу для вчителя (покращена версія)
+// Картка з кодом запрошення класу для вчителя (MongoDB version)
 
 import React, { useEffect, useState, useCallback } from 'react';
 import {
@@ -15,28 +15,29 @@ import CheckIcon from '@mui/icons-material/Check';
 import EditIcon from '@mui/icons-material/Edit';
 import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
 import ShareIcon from '@mui/icons-material/Share';
+import AddIcon from '@mui/icons-material/Add';
 import { useAuth } from '../../context/AuthContext';
 import {
     createOrGetClass,
-    subscribeClassForTeacher,
+    subscribeClassesForTeacher,
     regenerateClassCode,
     removeStudentFromClass,
     createNotification,
     getUsersByIds,
-} from '../../firebase/firestoreHelpers';
-import { db } from '../../firebase/firebase';
-import { doc as fsDoc, updateDoc as fsUpdateDoc } from 'firebase/firestore';
+    updateClassName,
+    updateCourseName,
+} from '../../api/endpoints';
 
 const MOON = '#7EACB5';
 const MOON_D = '#5F8F99';
 const GUN = '#1B242A';
 const BANNER = '#C4D9E3';
 
-export default function ClassCodeCard() {
+export default function ClassCodeCard({ classId, onClassCreated }) {
     const { user } = useAuth();
     const [classData, setClassData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [members, setMembers] = useState([]); // array of user profiles
+    const [members, setMembers] = useState([]);
     const [membersLoading, setMembersLoading] = useState(false);
     const [copied, setCopied] = useState(false);
     const [regen, setRegen] = useState(false);
@@ -45,18 +46,30 @@ export default function ClassCodeCard() {
     const [newName, setNewName] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // Init class and subscribe
+    // Init class and subscribe (polling)
     useEffect(() => {
         if (!user) return;
+        
+        // If "All Classes" is selected, don't poll for a specific class code
+        if (classId === '') {
+            setClassData(null);
+            setLoading(false);
+            return;
+        }
+
         let unsub;
-        createOrGetClass(user.uid, user.displayName || user.email).then(() => {
-            unsub = subscribeClassForTeacher(user.uid, (data) => {
-                setClassData(data);
-                setLoading(false);
-            });
-        }).catch(() => setLoading(false));
+        unsub = subscribeClassesForTeacher(user._id, (classesList) => {
+            const current = classesList.find(c => c._id === classId);
+            if (current) {
+                setClassData(current);
+            } else if (classesList.length > 0 && !classId) {
+                // Fallback to first class if nothing selected and no explicit "all"
+                setClassData(classesList[0]);
+            }
+            setLoading(false);
+        });
         return () => unsub?.();
-    }, [user]);
+    }, [user, classId]);
 
     // Load real member names when studentIds change
     useEffect(() => {
@@ -88,10 +101,10 @@ export default function ClassCodeCard() {
     }, [classData]);
 
     const handleRegen = async () => {
-        if (!classData?.id) return;
+        if (!classData?._id) return;
         setRegen(true);
         try {
-            await regenerateClassCode(classData.id);
+            await regenerateClassCode(classData._id);
             setSnack({ open: true, msg: '✓ Новий код згенеровано', severity: 'success' });
         } catch {
             setSnack({ open: true, msg: 'Помилка оновлення коду', severity: 'error' });
@@ -101,10 +114,10 @@ export default function ClassCodeCard() {
     };
 
     const handleKick = async (studentId, name) => {
-        if (!classData?.id) return;
+        if (!classData?._id) return;
         try {
-            await removeStudentFromClass(classData.id, studentId);
-            await createNotification(studentId, 'system', classData.id, `Вас відрахували з класу «${classData.name}»`);
+            await removeStudentFromClass(classData._id, studentId);
+            await createNotification(studentId, 'system', classData._id, `Вас відрахували з класу «${classData.name}»`);
             setSnack({ open: true, msg: `${name} відрахований зі списку`, severity: 'info' });
         } catch {
             setSnack({ open: true, msg: 'Помилка', severity: 'error' });
@@ -112,10 +125,10 @@ export default function ClassCodeCard() {
     };
 
     const handleRename = async () => {
-        if (!newName.trim() || !classData?.id) return;
+        if (!newName.trim() || !classData?._id) return;
         setSaving(true);
         try {
-            await fsUpdateDoc(fsDoc(db, 'classes', classData.id), { name: newName.trim() });
+            await updateClassName(classData._id, newName.trim());
             setRenameOpen(false);
         } catch {
             setSnack({ open: true, msg: 'Помилка збереження', severity: 'error' });
@@ -125,6 +138,38 @@ export default function ClassCodeCard() {
     };
 
     const codeChars = classData?.code ? classData.code.split('') : [];
+
+    if (classId === '') {
+        return (
+            <Card sx={{
+                borderRadius: 4,
+                background: `linear-gradient(135deg, ${GUN} 0%, #263340 100%)`,
+                color: '#fff', textAlign: 'center', p: 4,
+                boxShadow: '0 12px 40px rgba(27,36,42,0.25)',
+                border: `1px solid ${MOON}18`,
+            }}>
+                <SchoolIcon sx={{ fontSize: 48, color: MOON, mb: 2, opacity: 0.8 }} />
+                <Typography variant="h6" fontWeight={700} gutterBottom>
+                    Створити новий клас
+                </Typography>
+                <Typography variant="body2" sx={{ color: `${BANNER}99`, mb: 3 }}>
+                    Щоб почати, створіть свій перший клас або додайте новий.
+                </Typography>
+                <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={onClassCreated}
+                    sx={{
+                        bgcolor: MOON, color: '#fff', fontWeight: 700, px: 3, borderRadius: 2.5,
+                        '&:hover': { bgcolor: MOON_D },
+                        boxShadow: `0 4px 14px ${MOON}40`,
+                    }}
+                >
+                    Додати клас
+                </Button>
+            </Card>
+        );
+    }
 
     if (loading) {
         return (
@@ -207,7 +252,6 @@ export default function ClassCodeCard() {
                     <Stack direction="row" spacing={0.7} justifyContent="center" mb={0.5}>
                         {codeChars.length > 0 ? codeChars.map((ch, i) => (
                             <React.Fragment key={i}>
-                                {/* Visual separator after 3rd character */}
                                 {i === 3 && (
                                     <Box sx={{
                                         display: 'flex', alignItems: 'center',
@@ -292,7 +336,7 @@ export default function ClassCodeCard() {
                     <Typography variant="caption" sx={{
                         color: `${BANNER}77`, display: 'block', textAlign: 'center', mt: 1.5, fontSize: 11,
                     }}>
-                        Поділіться кодом зі студентами · Список оновлюється в реальному часі
+                        Поділіться кодом зі студентами · Список оновлюється автоматично
                     </Typography>
 
                     {/* Member list */}

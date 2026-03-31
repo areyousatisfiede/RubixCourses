@@ -1,4 +1,4 @@
-// src/components/auth/Login.jsx – includes demo test account buttons
+// src/components/auth/Login.jsx – MongoDB JWT auth + demo accounts
 import React, { useState } from 'react';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import {
@@ -11,7 +11,6 @@ import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { useAuth, TEST_ACCOUNTS } from '../../context/AuthContext';
-import { auth } from '../../firebase/firebase';
 
 const GUN = '#1B242A';
 const MOON = '#7EACB5';
@@ -41,13 +40,18 @@ export default function Login() {
 
     async function handleEmailSubmit(e) {
         e.preventDefault();
-        
+
         // Спробуємо демо-вхід спочатку
-        const demoOk = mockLogin(email, password);
-        if (demoOk) {
-            const found = TEST_ACCOUNTS.find((a) => a.email === email.trim().toLowerCase());
-            navigate(found.role === 'teacher' ? '/teacher' : '/student');
-            return;
+        const isDemoEmail = TEST_ACCOUNTS.some(a => a.email === email.trim().toLowerCase());
+        if (isDemoEmail) {
+            setLoading(true);
+            const demoOk = await mockLogin(email, password);
+            if (demoOk) {
+                const found = TEST_ACCOUNTS.find((a) => a.email === email.trim().toLowerCase());
+                navigate(found.role === 'teacher' ? '/teacher' : '/student');
+                return;
+            }
+            setLoading(false);
         }
 
         const validationError = validate();
@@ -59,30 +63,19 @@ export default function Login() {
         setLoading(true);
         setError('');
 
-        if (!auth) {
-            setError('Firebase не налаштовано. Спробуйте демо-акаунт.');
-            setLoading(false);
-            return;
-        }
-
         try {
             const { role: userRole } = await login(email, password);
-            // Перенаправляємо відповідно до ролі
             navigate(userRole === 'teacher' ? '/teacher' : '/student');
         } catch (e) {
-            let message = 'Невірний email або пароль.';
-            if (e.code === 'auth/user-not-found') message = 'Користувача не знайдено.';
-            if (e.code === 'auth/wrong-password') message = 'Невірний пароль.';
-            if (e.code === 'auth/invalid-credential') message = 'Невірні дані для входу.';
-            setError(message);
+            setError(e.message || 'Невірний email або пароль.');
         } finally {
             setLoading(false);
         }
     }
 
-    function loginAsDemo(account) {
+    async function loginAsDemo(account) {
         setLoading(true);
-        const ok = mockLogin(account.email, account.password);
+        const ok = await mockLogin(account.email, account.password);
         if (ok) navigate(account.role === 'teacher' ? '/teacher' : '/student');
         setLoading(false);
     }
@@ -107,7 +100,7 @@ export default function Login() {
                 background: 'radial-gradient(circle, rgba(126,172,181,0.18) 0%, transparent 70%)',
                 pointerEvents: 'none',
             }} />
-            
+
             <Paper
                 elevation={0}
                 sx={{
@@ -211,11 +204,6 @@ export default function Login() {
                                     ),
                                 }}
                             />
-                            <Box sx={{ textAlign: 'right', mt: 1 }}>
-                                <Link component={RouterLink} to="/forgot-password" sx={{ fontSize: '0.85rem', color: MOON, fontWeight: 600, textDecoration: 'none' }}>
-                                    Забули пароль?
-                                </Link>
-                            </Box>
                         </Box>
 
                         <Button

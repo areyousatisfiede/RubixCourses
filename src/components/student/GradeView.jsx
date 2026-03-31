@@ -1,179 +1,136 @@
 // src/components/student/GradeView.jsx
-// Перегляд усіх оцінок та коментарів студента
-
 import React, { useEffect, useState } from 'react';
 import {
-    Alert, Box, Card, CardContent, Chip, CircularProgress,
-    Container, Divider, LinearProgress, Stack, Typography,
+    Box, Card, CardContent, Chip, CircularProgress, Container,
+    Grid, Stack, Typography, LinearProgress,
 } from '@mui/material';
 import GradeIcon from '@mui/icons-material/Grade';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import PendingIcon from '@mui/icons-material/Pending';
+import ReplyIcon from '@mui/icons-material/Reply';
 import { useAuth } from '../../context/AuthContext';
-import { getAssignments, getSubmissionsForStudent } from '../../firebase/firestoreHelpers';
+import {
+    getAssignments,
+    getSubmissionsForStudent,
+} from '../../api/endpoints';
 
 const MOON = '#7EACB5';
-const MOON_D = '#5F8F99';
-const BANNER = '#2D3748';
-const BANNER_D = '#1e2a38';
 const GUN = '#1B242A';
-const CHAMP = '#F5E4C8';
-
-function gradeColor(grade) {
-    if (grade >= 90) return 'success';
-    if (grade >= 70) return 'info';
-    if (grade >= 50) return 'warning';
-    return 'error';
-}
 
 export default function GradeView() {
     const { user } = useAuth();
-    const [rows, setRows] = useState([]);       // { assignmentTitle, grade, comment, gradedAt }
+    const [assignments, setAssignments] = useState([]);
+    const [submissions, setSubmissions] = useState({});
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
 
     useEffect(() => {
         async function load() {
             try {
-                const [assignments, submissions] = await Promise.all([
+                const [list, subs] = await Promise.all([
                     getAssignments(),
-                    getSubmissionsForStudent(user.uid),
+                    getSubmissionsForStudent(user._id),
                 ]);
-                // Зʼєднуємо submissions з назвами завдань
-                const combined = submissions.map((sub) => {
-                    const assignment = assignments.find((a) => a.id === sub.assignmentId);
-                    return {
-                        id: sub.id,
-                        assignmentTitle: assignment?.title || 'Невідоме завдання',
-                        grade: sub.grade,
-                        comment: sub.comment,
-                        gradedAt: sub.gradedAt,
-                        submittedAt: sub.submittedAt,
-                    };
-                });
-                setRows(combined);
+                setAssignments(list);
+                const subMap = {};
+                subs.forEach(s => { subMap[s.assignmentId] = s; });
+                setSubmissions(subMap);
             } catch (e) {
-                setError('Помилка завантаження оцінок');
+                console.error(e);
             } finally {
                 setLoading(false);
             }
         }
         load();
-    }, [user.uid]);
+    }, [user]);
 
-    // Підраховуємо середню оцінку
-    const graded = rows.filter((r) => r.grade != null);
-    const average = graded.length
-        ? Math.round(graded.reduce((s, r) => s + r.grade, 0) / graded.length)
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}>
+                <CircularProgress sx={{ color: MOON }} />
+            </Box>
+        );
+    }
+
+    const graded = assignments.filter(a => submissions[a._id]?.grade != null);
+    const avgGrade = graded.length
+        ? Math.round(graded.reduce((sum, a) => sum + (submissions[a._id]?.grade || 0), 0) / graded.length)
         : null;
 
     return (
-        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-            <Container maxWidth="md" sx={{ py: 4 }}>
-                <Stack direction="row" alignItems="center" spacing={1.5} mb={3}>
-                    <GradeIcon sx={{ fontSize: 34, color: MOON }} />
-                    <Box>
-                        <Typography variant="h4" sx={{ fontWeight: 800, color: GUN }}>Мої оцінки</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Здано: {rows.length} | Оцінено: {graded.length}
-                        </Typography>
-                    </Box>
-                </Stack>
-
-                {/* Середня оцінка */}
-                {average != null && (
-                    <Card
-                        sx={{
-                            mb: 3,
-                            background: `linear-gradient(135deg, ${BANNER_D} 0%, ${BANNER} 100%)`,
-                            color: 'white',
-                            border: '1px solid rgba(126,172,181,0.2)',
-                        }}
-                    >
-                        <CardContent>
-                            <Stack direction="row" alignItems="center" spacing={2}>
-                                <EmojiEventsIcon sx={{ fontSize: 48, color: MOON }} />
-                                <Box>
-                                    <Typography variant="h3" fontWeight={800} sx={{ color: CHAMP }}>{average}</Typography>
-                                    <Typography variant="body2" sx={{ color: 'rgba(245,228,200,0.7)' }}>
-                                        Середня оцінка зі 100
-                                    </Typography>
-                                </Box>
-                            </Stack>
-                        </CardContent>
-                    </Card>
+        <Box sx={{ minHeight: '100vh', bgcolor: '#f7f9fb', pb: 8 }}>
+            <Container maxWidth="lg" sx={{ py: 4 }}>
+                <Typography variant="h5" fontWeight={800} color={GUN} mb={1}>
+                    Мої оцінки
+                </Typography>
+                {avgGrade !== null && (
+                    <Typography variant="body1" color="text.secondary" mb={3}>
+                        Середній бал: <strong>{avgGrade}</strong> · Оцінено: {graded.length} / {assignments.length}
+                    </Typography>
                 )}
 
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                <Grid container spacing={2}>
+                    {assignments.map((a) => {
+                        const sub = submissions[a._id];
+                        return (
+                            <Grid item xs={12} sm={6} md={4} key={a._id}>
+                                <Card sx={{ borderRadius: 3, border: '1px solid #e2e8f0', height: '100%' }}>
+                                    <CardContent>
+                                        <Typography variant="subtitle1" fontWeight={700} color={GUN} gutterBottom noWrap>
+                                            {a.title}
+                                        </Typography>
 
-                {loading ? (
-                    <Box textAlign="center" py={6}><CircularProgress /></Box>
-                ) : rows.length === 0 ? (
-                    <Card sx={{ textAlign: 'center', py: 6 }}>
-                        <GradeIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 1 }} />
-                        <Typography color="text.secondary">Ви ще не здали жодного завдання</Typography>
-                    </Card>
-                ) : (
-                    <Stack spacing={2}>
-                        {rows.map((row) => (
-                            <Card
-                                key={row.id}
-                                sx={{
-                                    borderLeft: row.grade != null
-                                        ? `4px solid ${row.grade >= 90 ? '#38A169' : row.grade >= 70 ? MOON_D : row.grade >= 50 ? '#D69E2E' : '#E53E3E'}`
-                                        : '4px solid #CBD5E0',
-                                }}
-                            >
-                                <CardContent>
-                                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                                        <Typography variant="h6" flex={1} sx={{ color: GUN }}>{row.assignmentTitle}</Typography>
-                                        {row.grade != null ? (
-                                            <Chip
-                                                label={`${row.grade} / 100`}
-                                                color={gradeColor(row.grade)}
-                                                sx={{ fontWeight: 700, fontSize: '1rem', px: 1 }}
-                                            />
+                                        {sub ? (
+                                            <>
+                                                {sub.grade != null ? (
+                                                    <>
+                                                        <Typography variant="h3" fontWeight={800} color={MOON} mb={0.5}>
+                                                            {sub.grade}
+                                                        </Typography>
+                                                        <LinearProgress
+                                                            variant="determinate"
+                                                            value={sub.grade}
+                                                            sx={{
+                                                                height: 6, borderRadius: 3, mb: 1.5,
+                                                                bgcolor: `${MOON}15`,
+                                                                '& .MuiLinearProgress-bar': { bgcolor: MOON },
+                                                            }}
+                                                        />
+                                                        <Chip
+                                                            icon={sub.status === 'returned' ? <ReplyIcon /> : <CheckCircleIcon />}
+                                                            label={sub.status === 'returned' ? 'Повернуто' : 'Оцінено'}
+                                                            size="small"
+                                                            color={sub.status === 'returned' ? 'success' : 'primary'}
+                                                            sx={{ fontWeight: 600 }}
+                                                        />
+                                                        {sub.comment && (
+                                                            <Box sx={{ bgcolor: '#f0f4f8', borderRadius: 1.5, p: 1.5, mt: 1.5 }}>
+                                                                <Typography variant="caption" fontWeight={700}>💬 Коментар:</Typography>
+                                                                <Typography variant="body2" fontSize={13}>
+                                                                    {sub.comment}
+                                                                </Typography>
+                                                            </Box>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <Stack direction="row" alignItems="center" spacing={1} mt={2}>
+                                                        <PendingIcon sx={{ color: '#ED8936' }} />
+                                                        <Typography variant="body2" color="text.secondary" fontWeight={600}>
+                                                            Очікує перевірки
+                                                        </Typography>
+                                                    </Stack>
+                                                )}
+                                            </>
                                         ) : (
-                                            <Chip label="Очікує оцінки" size="small" />
-                                        )}
-                                    </Stack>
-
-                                    {row.grade != null && (
-                                        <Box mt={1.5}>
-                                            <LinearProgress
-                                                variant="determinate"
-                                                value={row.grade}
-                                                sx={{
-                                                    height: 6, borderRadius: 3,
-                                                    bgcolor: '#EDF2F7',
-                                                    '& .MuiLinearProgress-bar': {
-                                                        bgcolor: row.grade >= 90 ? '#38A169' : row.grade >= 70 ? MOON_D : row.grade >= 50 ? '#D69E2E' : '#E53E3E',
-                                                    },
-                                                }}
-                                            />
-                                        </Box>
-                                    )}
-
-                                    {row.comment && (
-                                        <>
-                                            <Divider sx={{ my: 1.5 }} />
-                                            <Typography variant="body2" color="text.secondary">
-                                                💬 <strong>Коментар викладача:</strong> {row.comment}
+                                            <Typography variant="body2" color="text.secondary" mt={2}>
+                                                Не здано
                                             </Typography>
-                                        </>
-                                    )}
-
-                                    <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                                        {row.gradedAt
-                                            ? `Оцінено: ${new Date(row.gradedAt.seconds * 1000).toLocaleString('uk-UA')}`
-                                            : row.submittedAt
-                                                ? `Здано: ${new Date(row.submittedAt.seconds * 1000).toLocaleString('uk-UA')}`
-                                                : ''}
-                                    </Typography>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </Stack>
-                )}
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                        );
+                    })}
+                </Grid>
             </Container>
         </Box>
     );

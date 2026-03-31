@@ -20,10 +20,10 @@ import {
     deleteAnnouncement,
     subscribeAnnouncements,
     addAnnouncementComment,
-    subscribeAnnouncementComments,
+    getAnnouncementComments,
     createNotification,
     getAllStudents,
-} from '../../firebase/firestoreHelpers';
+} from '../../api/endpoints';
 
 const MOON = '#7EACB5';
 const MOON_P = 'rgba(126,172,181,0.12)';
@@ -50,8 +50,17 @@ function AnnouncementComments({ announcementId }) {
     const [sending, setSending] = useState(false);
 
     useEffect(() => {
-        const unsub = subscribeAnnouncementComments(announcementId, setComments);
-        return unsub;
+        let active = true;
+        async function poll() {
+            if (!active) return;
+            try {
+                const list = await getAnnouncementComments(announcementId);
+                if (active) setComments(list);
+            } catch (e) { console.warn(e); }
+        }
+        poll();
+        const interval = setInterval(poll, 5000);
+        return () => { active = false; clearInterval(interval); };
     }, [announcementId]);
 
     async function handleSend(e) {
@@ -60,7 +69,7 @@ function AnnouncementComments({ announcementId }) {
         setSending(true);
         try {
             await addAnnouncementComment(announcementId, {
-                authorId: user.uid,
+                authorId: user._id,
                 authorName: user.displayName || user.email?.split('@')[0] || '?',
                 text: text.trim(),
             });
@@ -74,7 +83,7 @@ function AnnouncementComments({ announcementId }) {
         <Box sx={{ px: 2, pb: 2 }}>
             <Divider sx={{ mb: 1.5 }} />
             {comments.map((c) => (
-                <Box key={c.id} sx={{ display: 'flex', gap: 1.2, mb: 1.2 }}>
+                <Box key={c._id} sx={{ display: 'flex', gap: 1.2, mb: 1.2 }}>
                     <Avatar sx={{ width: 28, height: 28, bgcolor: MOON, fontSize: 11, fontWeight: 700 }}>
                         {(c.authorName || '?')[0].toUpperCase()}
                     </Avatar>
@@ -121,7 +130,7 @@ function AnnouncementCard({ ann, isTeacher }) {
 
     async function handleDelete() {
         if (!window.confirm('Видалити це оголошення?')) return;
-        await deleteAnnouncement(ann.id);
+        await deleteAnnouncement(ann._id);
     }
 
     return (
@@ -178,7 +187,7 @@ function AnnouncementCard({ ann, isTeacher }) {
             </CardActions>
 
             <Collapse in={expanded}>
-                <AnnouncementComments announcementId={ann.id} />
+                <AnnouncementComments announcementId={ann._id} />
             </Collapse>
         </Card>
     );
@@ -216,7 +225,7 @@ export default function ClassStream() {
                 title: title.trim(),
                 body: body.trim(),
                 pinned,
-                authorId: user.uid,
+                authorId: user._id,
                 authorName: user.displayName || user.email?.split('@')[0] || 'Викладач',
             });
 
@@ -320,11 +329,11 @@ export default function ClassStream() {
                     <>
                         {/* Закріплені вгорі */}
                         {announcements.filter((a) => a.pinned).map((a) => (
-                            <AnnouncementCard key={a.id} ann={a} isTeacher={isTeacher} />
+                            <AnnouncementCard key={a._id} ann={a} isTeacher={isTeacher} />
                         ))}
                         {/* Решта */}
                         {announcements.filter((a) => !a.pinned).map((a) => (
-                            <AnnouncementCard key={a.id} ann={a} isTeacher={isTeacher} />
+                            <AnnouncementCard key={a._id} ann={a} isTeacher={isTeacher} />
                         ))}
                     </>
                 )}

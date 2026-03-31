@@ -1,26 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    Accordion,
-    AccordionDetails,
-    AccordionSummary,
-    Avatar,
-    Box,
-    Button,
-    Card,
-    CardContent,
-    Chip,
-    CircularProgress,
-    Container,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Grid,
-    IconButton,
-    Stack,
-    TextField,
-    Tooltip,
-    Typography,
+    Accordion, AccordionDetails, AccordionSummary, Avatar, Box, Button,
+    Card, CardContent, Chip, CircularProgress, Container, Dialog,
+    DialogActions, DialogContent, DialogTitle, Grid, IconButton, Stack,
+    TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
@@ -42,7 +25,7 @@ import {
     removeStudentFromClass,
     subscribeClassesForTeacher,
     updateClassName,
-} from '../../firebase/firestoreHelpers';
+} from '../../api/endpoints';
 
 const MOON = '#7EACB5';
 const GUN = '#1B242A';
@@ -63,7 +46,7 @@ export default function ClassMembers() {
 
     useEffect(() => {
         if (!user) return;
-        const unsubscribe = subscribeClassesForTeacher(user.uid, (data) => {
+        const unsubscribe = subscribeClassesForTeacher(user._id, (data) => {
             setClasses(data);
         });
         return () => unsubscribe();
@@ -80,17 +63,17 @@ export default function ClassMembers() {
                 setTotalAsgn(assignments.length);
 
                 const submissions = (
-                    await Promise.all(assignments.map((a) => getSubmissionsForAssignment(a.id)))
+                    await Promise.all(assignments.map((a) => getSubmissionsForAssignment(a._id)))
                 ).flat();
 
                 const nextStats = {};
                 students.forEach((student) => {
-                    const mine = submissions.filter((sub) => sub.studentId === student.uid);
+                    const mine = submissions.filter((sub) => sub.studentId === student._id);
                     const graded = mine.filter((sub) => sub.grade != null);
                     const avg = graded.length
                         ? Math.round(graded.reduce((acc, sub) => acc + sub.grade, 0) / graded.length)
                         : null;
-                    nextStats[student.uid] = { submitted: mine.length, graded: graded.length, avg };
+                    nextStats[student._id] = { submitted: mine.length, graded: graded.length, avg };
                 });
                 setStats(nextStats);
             } finally {
@@ -104,28 +87,28 @@ export default function ClassMembers() {
         () =>
             classes.map((cls) => ({
                 ...cls,
-                students: allStudents.filter((s) => cls.studentIds?.includes(s.uid)),
+                students: allStudents.filter((s) => cls.studentIds?.includes(s._id)),
             })),
         [classes, allStudents]
     );
 
     async function handleCreateClass() {
         if (!newClassName.trim()) return;
-        await createNewClass(user.uid, user.displayName || user.email, newClassName.trim());
+        await createNewClass(user._id, user.displayName || user.email, newClassName.trim());
         setNewClassName('');
         setCreateOpen(false);
     }
 
     async function handleRenameClass() {
         if (!editClass || !newClassName.trim()) return;
-        await updateClassName(editClass.id, newClassName.trim());
+        await updateClassName(editClass._id, newClassName.trim());
         setEditClass(null);
         setNewClassName('');
     }
 
     async function handleDeleteClass() {
         if (!deleteConfirm) return;
-        await deleteClass(deleteConfirm.id);
+        await deleteClass(deleteConfirm._id);
         setDeleteConfirm(null);
     }
 
@@ -179,7 +162,7 @@ export default function ClassMembers() {
                 ) : (
                     <Stack spacing={2}>
                         {classesWithStudents.map((cls) => (
-                            <Accordion key={cls.id} sx={{ borderRadius: '12px !important', overflow: 'hidden' }}>
+                            <Accordion key={cls._id} sx={{ borderRadius: '12px !important', overflow: 'hidden' }}>
                                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                                     <Stack direction="row" alignItems="center" spacing={2} sx={{ width: '100%', pr: 2 }}>
                                         <GroupsIcon sx={{ color: MOON }} />
@@ -211,9 +194,9 @@ export default function ClassMembers() {
                                     ) : (
                                         <Grid container spacing={2}>
                                             {cls.students.map((student) => {
-                                                const st = stats[student.uid] || { submitted: 0, graded: 0, avg: null };
+                                                const st = stats[student._id] || { submitted: 0, graded: 0, avg: null };
                                                 return (
-                                                    <Grid item xs={12} sm={6} md={4} key={student.uid}>
+                                                    <Grid item xs={12} sm={6} md={4} key={student._id}>
                                                         <Card variant="outlined" sx={{ borderRadius: 2 }}>
                                                             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
                                                                 <Stack direction="row" spacing={1.5} alignItems="center">
@@ -232,10 +215,10 @@ export default function ClassMembers() {
                                                                         <IconButton
                                                                             size="small"
                                                                             color="error"
-                                                                            disabled={kickingId === student.uid}
-                                                                            onClick={() => handleKick(cls.id, cls.name, student.uid)}
+                                                                            disabled={kickingId === student._id}
+                                                                            onClick={() => handleKick(cls._id, cls.name, student._id)}
                                                                         >
-                                                                            {kickingId === student.uid ? <CircularProgress size={16} /> : <PersonRemoveIcon fontSize="small" />}
+                                                                            {kickingId === student._id ? <CircularProgress size={16} /> : <PersonRemoveIcon fontSize="small" />}
                                                                         </IconButton>
                                                                     </Tooltip>
                                                                 </Stack>
@@ -271,10 +254,7 @@ export default function ClassMembers() {
                 <DialogTitle>Створити новий клас</DialogTitle>
                 <DialogContent>
                     <TextField
-                        autoFocus
-                        margin="dense"
-                        label="Назва класу"
-                        fullWidth
+                        autoFocus margin="dense" label="Назва класу" fullWidth
                         value={newClassName}
                         onChange={(e) => setNewClassName(e.target.value)}
                     />
@@ -291,10 +271,7 @@ export default function ClassMembers() {
                 <DialogTitle>Перейменувати клас</DialogTitle>
                 <DialogContent>
                     <TextField
-                        autoFocus
-                        margin="dense"
-                        label="Нова назва"
-                        fullWidth
+                        autoFocus margin="dense" label="Нова назва" fullWidth
                         value={newClassName}
                         onChange={(e) => setNewClassName(e.target.value)}
                     />

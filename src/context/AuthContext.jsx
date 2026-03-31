@@ -1,38 +1,26 @@
 // src/context/AuthContext.jsx
-// Надає { user, role, loading, logout, mockLogin } усьому дереву компонентів
+// Надає { user, role, loading, logout, login, signup } усьому дереву компонентів
+// Авторизація через MongoDB + JWT (без Firebase Auth)
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-    onAuthStateChanged, 
-    signOut, 
-    signInWithEmailAndPassword, 
-    createUserWithEmailAndPassword, 
-    sendPasswordResetEmail,
-    updateProfile
-} from 'firebase/auth';
 import { Box, CircularProgress } from '@mui/material';
-import { auth } from '../firebase/firebase';
-import { getUserProfile, createUserProfile } from '../firebase/firestoreHelpers';
+import { apiPost, apiGet } from '../api/client';
 
 const AuthContext = createContext(null);
 
-// ─── Тестові акаунти (без Firebase) ──────────────────────────────────────────
+// ─── Тестові акаунти ──────────────────────────────────────────
 export const TEST_ACCOUNTS = [
     {
         email: 'teacher@eduhub.demo',
         password: 'demo1234',
         role: 'teacher',
         displayName: 'Олена Коваль (Викладач)',
-        photoURL: null,
-        uid: 'demo-teacher-001',
     },
     {
         email: 'student@eduhub.demo',
         password: 'demo1234',
         role: 'student',
         displayName: 'Михайло Дем\'яненко (Студент)',
-        photoURL: null,
-        uid: 'demo-student-001',
     },
 ];
 
@@ -45,133 +33,82 @@ export function AuthProvider({ children }) {
     const [role, setRole] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    // При завантаженні — перевіряємо збережений токен
     useEffect(() => {
-        // Відновлюємо демо-сесію з sessionStorage
-        const saved = sessionStorage.getItem('demo_user');
-        if (saved) {
+        async function restoreSession() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                setLoading(false);
+                return;
+            }
             try {
-                const parsed = JSON.parse(saved);
-                setUser(parsed.user);
-                setRole(parsed.role);
-                setLoading(false); // Демо-акаунт завантажується миттєво
+                const userData = await apiGet('/api/auth/me');
+                setUser(userData);
+                setRole(userData.role);
             } catch (e) {
-                console.error("Помилка парсингу демо-сесії:", e);
-                sessionStorage.removeItem('demo_user');
-            }
-        }
-
-        if (!auth) {
-            setLoading(false);
-            return;
-        }
-
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
-                // ВАЖЛИВО: Спершу отримуємо роль, потім знімаємо loading
-                try {
-                    setUser(firebaseUser);
-                    const profile = await getUserProfile(firebaseUser.uid);
-                    setRole(profile?.role ?? 'student'); // За замовчуванням student якщо профілю немає
-                } catch (e) {
-                    console.error("Помилка при отриманні профілю:", e);
-                    setRole('student');
-                }
-            } else {
-                // Перевіряємо чи є демо-сесія (якщо немає firebaseUser)
-                if (!sessionStorage.getItem('demo_user')) {
-                    setUser(null);
-                    setRole(null);
-                }
+                // Токен невалідний — очищаємо
+                console.warn('Session restore failed:', e);
+                localStorage.removeItem('token');
             }
             setLoading(false);
-        });
-
-        return () => unsubscribe();
+        }
+        restoreSession();
     }, []);
 
     /**
-     * Вхід через Firebase Auth
+     * Вхід через MongoDB
      */
     async function login(email, password) {
-        if (!auth) throw new Error('Firebase Auth не ініціалізовано');
-        setLoading(true); // Показуємо завантаження поки отримуємо роль
-        try {
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            const profile = await getUserProfile(userCredential.user.uid);
-            const userRole = profile?.role || 'student';
-            setRole(userRole);
-            return { user: userCredential.user, role: userRole };
-        } catch (e) {
-            setLoading(false);
-            throw e;
-        }
+        const data = await apiPost('/api/auth/login', { email, password });
+        localStorage.setItem('token', data.token);
+        setUser(data.user);
+        setRole(data.user.role);
+        return { user: data.user, role: data.user.role };
     }
 
     /**
-     * Реєстрація через Firebase Auth
+     * Реєстрація через MongoDB
      */
     async function signup(email, password, role, displayName) {
-        if (!auth) throw new Error('Firebase Auth не ініціалізовано');
-        setLoading(true);
-        try {
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            await updateProfile(userCredential.user, { displayName });
-            await createUserProfile(userCredential.user.uid, {
-                email,
-                displayName,
-                role,
-            });
-            setRole(role);
-            return { user: userCredential.user, role };
-        } catch (e) {
-            setLoading(false);
-            throw e;
-        }
+        const data = await apiPost('/api/auth/register', { email, password, role, displayName });
+        localStorage.setItem('token', data.token);
+        setUser(data.user);
+        setRole(data.user.role);
+        return { user: data.user, role: data.user.role };
     }
 
     /**
-     * Скидання паролю
+     * Швидкий вхід через демо-акаунт (реєструє якщо ще не існує, або входить)
      */
-    async function resetPassword(email) {
-        if (!auth) throw new Error('Firebase Auth не ініціалізовано');
-        return await sendPasswordResetEmail(auth, email);
-    }
-
-    /**
-     * Вхід через тестовий (демо) акаунт — без Firebase.
-     */
-    function mockLogin(email, password) {
+    async function mockLogin(email, password) {
         const found = TEST_ACCOUNTS.find(
             (a) => a.email === email.trim().toLowerCase() && a.password === password
         );
         if (!found) return false;
 
-        const mockUser = {
-            uid: found.uid,
-            email: found.email,
-            displayName: found.displayName,
-            photoURL: found.photoURL,
-            isDemo: true,
-        };
-        setUser(mockUser);
-        setRole(found.role);
-        sessionStorage.setItem('demo_user', JSON.stringify({ user: mockUser, role: found.role }));
-        return true;
+        try {
+            // Спершу спробуємо війти
+            await login(found.email, found.password);
+            return true;
+        } catch (e) {
+            // Якщо не знайдено — реєструємо
+            try {
+                await signup(found.email, found.password, found.role, found.displayName);
+                return true;
+            } catch (e2) {
+                console.error('Demo login failed:', e2);
+                return false;
+            }
+        }
     }
 
     /**
      * Вихід із системи
      */
-    async function logout() {
-        if (user?.isDemo) {
-            sessionStorage.removeItem('demo_user');
-            setUser(null);
-            setRole(null);
-        } else if (auth) {
-            await signOut(auth);
-            setUser(null);
-            setRole(null);
-        }
+    function logout() {
+        localStorage.removeItem('token');
+        setUser(null);
+        setRole(null);
     }
 
     const value = {
@@ -181,7 +118,6 @@ export function AuthProvider({ children }) {
         login,
         signup,
         logout,
-        resetPassword,
         mockLogin,
     };
 

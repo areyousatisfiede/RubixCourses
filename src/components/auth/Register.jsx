@@ -59,11 +59,7 @@ export default function Register() {
             await signup(formData.email, formData.password, formData.role, formData.displayName);
             navigate(formData.role === 'teacher' ? '/teacher' : '/student');
         } catch (e) {
-            let message = 'Помилка реєстрації. Спробуйте пізніше.';
-            if (e.code === 'auth/email-already-in-use') message = 'Цей email вже використовується.';
-            if (e.code === 'auth/invalid-email') message = 'Невірний формат email.';
-            if (e.code === 'auth/weak-password') message = 'Пароль занадто слабкий.';
-            setError(message);
+            setError(e.message || 'Помилка реєстрації. Спробуйте пізніше.');
         } finally {
             setLoading(false);
         }

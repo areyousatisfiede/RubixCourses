@@ -14,7 +14,7 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import { useAuth } from '../../context/AuthContext';
-import { subscribeNotifications, markAllNotificationsRead } from '../../firebase/firestoreHelpers';
+import { subscribeNotifications, markAllNotificationsRead } from '../../api/endpoints';
 
 const MOON = '#7EACB5';
 const MOON_P = 'rgba(126,172,181,0.12)';
@@ -46,9 +46,9 @@ export default function NotificationBell() {
 
     useEffect(() => {
         if (!user?.uid) return;
-        const unsub = subscribeNotifications(user.uid, (all, count) => {
+        const unsub = subscribeNotifications(user._id, (all) => {
             setNotifs(all.slice(0, 12)); // показуємо останні 12
-            setUnread(count);
+            setUnread(all.filter(n => !n.read).length);
         });
         return unsub;
     }, [user?.uid]);
@@ -59,7 +59,7 @@ export default function NotificationBell() {
 
     async function handleClose() {
         setAnchor(null);
-        if (unread > 0) await markAllNotificationsRead(user.uid);
+        if (unread > 0) await markAllNotificationsRead(user._id);
     }
 
     const open = Boolean(anchor);
@@ -111,7 +111,7 @@ export default function NotificationBell() {
                     </Typography>
                     {unread > 0 && (
                         <Tooltip title="Позначити всі як прочитані">
-                            <IconButton size="small" onClick={() => markAllNotificationsRead(user.uid)} sx={{ color: 'rgba(255,255,255,0.6)', '&:hover': { color: MOON } }}>
+                            <IconButton size="small" onClick={() => markAllNotificationsRead(user._id)} sx={{ color: 'rgba(255,255,255,0.6)', '&:hover': { color: MOON } }}>
                                 <DoneAllIcon fontSize="small" />
                             </IconButton>
                         </Tooltip>
@@ -133,7 +133,7 @@ export default function NotificationBell() {
                             {notifs.map((n, i) => {
                                 const meta = TYPE_META[n.type] || TYPE_META.comment;
                                 return (
-                                    <React.Fragment key={n.id}>
+                                    <React.Fragment key={n._id}>
                                         <ListItem
                                             alignItems="flex-start"
                                             sx={{
